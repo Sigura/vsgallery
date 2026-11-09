@@ -1,0 +1,318 @@
+{
+  "name": "lora-dataset-studio",
+  "displayName": "LoRA Dataset Studio",
+  "description": "Curate image + caption datasets for Stable Diffusion LoRA training.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onWebviewPanel:loraDataset.gallery"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "loraDataset.openGallery",
+        "title": "Open Dataset Gallery",
+        "category": "LoRA Dataset"
+      },
+      {
+        "command": "loraDataset.openImage",
+        "title": "Open Image in Dataset Editor",
+        "category": "LoRA Dataset"
+      },
+      {
+        "command": "loraDataset.clearThumbnailCache",
+        "title": "Clear Thumbnail Cache",
+        "category": "LoRA Dataset"
+      },
+      {
+        "command": "loraDataset.deleteSelected",
+        "title": "Delete Selected Images (with captions)",
+        "category": "LoRA Dataset"
+      },
+      {
+        "command": "loraDataset.autoCaption",
+        "title": "Auto-caption Selected or Visible Images",
+        "category": "LoRA Dataset"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "loraDataset.openGallery",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@90"
+        },
+        {
+          "command": "loraDataset.openImage",
+          "when": "!explorerResourceIsFolder && resourceExtname =~ /^\\.(png|jpe?g|webp|bmp)$/i",
+          "group": "navigation@90"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "loraDataset.openImage",
+          "when": "false"
+        },
+        {
+          "command": "loraDataset.deleteSelected",
+          "when": "activeWebviewPanelId == 'loraDataset.gallery'"
+        },
+        {
+          "command": "loraDataset.autoCaption",
+          "when": "activeWebviewPanelId == 'loraDataset.gallery'"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "loraDataset.deleteSelected",
+          "when": "webviewId == 'loraDataset.gallery' && webviewSection == 'tile'",
+          "group": "9_delete"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "LoRA Dataset Studio",
+      "properties": {
+        "loraDataset.concurrency": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum simultaneous image reads/decodes (thumbnails, header reads)."
+        },
+        "loraDataset.thumbnailSize": {
+          "type": "integer",
+          "default": 160,
+          "minimum": 64,
+          "maximum": 512,
+          "description": "Default tile size in the gallery (px). Adjustable per panel with the slider or Ctrl+wheel."
+        },
+        "loraDataset.thumbnailResolution": {
+          "type": "integer",
+          "default": 384,
+          "enum": [
+            256,
+            384,
+            512
+          ],
+          "description": "Long side (px) of cached thumbnails. Changing it regenerates thumbnails."
+        },
+        "loraDataset.cacheSizeLimitMB": {
+          "type": "integer",
+          "default": 1024,
+          "minimum": 50,
+          "description": "Thumbnail disk cache limit. Oldest thumbnails are removed when exceeded."
+        },
+        "loraDataset.captionExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".txt",
+            ".caption"
+          ],
+          "description": "Caption file extensions, in priority order. The first existing <basename><ext> is the image's caption."
+        },
+        "loraDataset.minResolution": {
+          "type": "integer",
+          "default": 512,
+          "minimum": 1,
+          "description": "Short-side threshold (px) for the \"below min resolution\" filter."
+        },
+        "loraDataset.quality.blurThreshold": {
+          "type": "number",
+          "default": 50,
+          "minimum": 0,
+          "description": "Images whose sharpness (variance of the Laplacian of a 256 px grayscale copy) is below this are flagged as blurry. Raise it to flag more images."
+        },
+        "loraDataset.quality.maxAspect": {
+          "type": "number",
+          "default": 2.5,
+          "minimum": 1,
+          "description": "Images whose long side / short side exceeds this are flagged as extreme aspect."
+        },
+        "loraDataset.quality.minWords": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 0,
+          "description": "Captions with fewer words are flagged as short."
+        },
+        "loraDataset.quality.maxTokens": {
+          "type": "integer",
+          "default": 75,
+          "minimum": 1,
+          "description": "Captions with more (approximate) CLIP tokens are flagged as long. 75 is the default limit; kohya's --max_token_length allows 150 or 225."
+        },
+        "loraDataset.confirmDelete": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask for confirmation before permanently deleting images and their caption files. Deleting folders always asks."
+        },
+        "loraDataset.pollIntervalSeconds": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Rescan open galleries every N seconds in addition to the file watcher (0 = off). Use for network drives or folders whose changes the watcher misses."
+        },
+        "loraDataset.captionAutosave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Save caption edits automatically after a short pause."
+        },
+        "loraDataset.captionAutosaveDelay": {
+          "type": "integer",
+          "default": 800,
+          "minimum": 100,
+          "description": "Autosave delay for caption edits (ms)."
+        },
+        "loraDataset.snapMultiple": {
+          "type": "integer",
+          "enum": [
+            1,
+            8,
+            64
+          ],
+          "default": 8,
+          "description": "Default multiple that crop (and later resize) sizes are rounded down to. 1 = off."
+        },
+        "loraDataset.brushSizeMode": {
+          "type": "string",
+          "enum": [
+            "screen",
+            "image"
+          ],
+          "default": "screen",
+          "enumDescriptions": [
+            "Brush size in screen pixels: the brush looks the same size at any zoom.",
+            "Brush size in image pixels."
+          ],
+          "description": "Default brush size mode in the image editor."
+        },
+        "loraDataset.editorBackup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Before overwriting an edited image the first time, keep the original as <name>.<ext>.bak next to it."
+        },
+        "loraDataset.jpegQuality": {
+          "type": "number",
+          "default": 0.95,
+          "minimum": 0.5,
+          "maximum": 1,
+          "description": "Quality for JPEG/WebP images saved from the editor."
+        },
+        "loraDataset.undoMemoryMB": {
+          "type": "integer",
+          "default": 512,
+          "minimum": 32,
+          "description": "Memory limit for the image editor's undo history; the oldest steps are dropped beyond it."
+        },
+        "loraDataset.tagger.model": {
+          "type": "string",
+          "enum": [
+            "wd-vit-tagger-v3",
+            "wd-eva02-large-tagger-v3"
+          ],
+          "default": "wd-vit-tagger-v3",
+          "enumDescriptions": [
+            "SmilingWolf/wd-vit-tagger-v3: faster, ~380 MB download.",
+            "SmilingWolf/wd-eva02-large-tagger-v3: more accurate, slower, ~1.3 GB download."
+          ],
+          "description": "WD Tagger v3 model for caption generation. Downloaded from huggingface.co on first use unless a model folder is set."
+        },
+        "loraDataset.tagger.modelFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Folder containing model.onnx and selected_tags.csv of a WD tagger, used instead of downloading. Empty = download the model selected above."
+        },
+        "loraDataset.tagger.generalThreshold": {
+          "type": "number",
+          "default": 0.35,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum confidence for general tags."
+        },
+        "loraDataset.tagger.characterThreshold": {
+          "type": "number",
+          "default": 0.85,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum confidence for character tags."
+        },
+        "loraDataset.tagger.excludeTags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Tags never written by the caption generator (case-insensitive; underscores and spaces are equivalent)."
+        },
+        "loraDataset.tagger.replaceUnderscores": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write generated tags with spaces instead of underscores (kaomoji such as ^_^ are kept)."
+        },
+        "loraDataset.tagger.triggerWord": {
+          "type": "string",
+          "default": "",
+          "description": "Tag(s) put first in every generated caption, e.g. your LoRA trigger word. Comma-separated for several."
+        },
+        "loraDataset.tagger.existingCaptions": {
+          "type": "string",
+          "enum": [
+            "skip",
+            "append",
+            "overwrite"
+          ],
+          "default": "skip",
+          "enumDescriptions": [
+            "Leave images that already have a non-empty caption untouched.",
+            "Add generated tags that the caption does not have yet.",
+            "Replace the caption with the generated tags."
+          ],
+          "description": "Default for auto-captioning images that already have a caption. The Generate button in the detail view treats skip like append."
+        },
+        "loraDataset.tagger.backend": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "webgpu",
+            "wasm"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "WebGPU when available, otherwise WebAssembly on the CPU.",
+            "WebGPU only.",
+            "WebAssembly on the CPU only (single thread)."
+          ],
+          "description": "Where the caption model runs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p . --noEmit && tsc -p src/webview --noEmit",
+    "test": "node esbuild.mjs --tests && node --test 'dist-test/*.test.mjs'",
+    "vscode:prepublish": "npm run typecheck && node esbuild.mjs --production",
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "^1.120.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.31.1"
+  }
+}

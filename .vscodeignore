@@ -1,0 +1,7 @@
+**
+!dist/**
+!models/**
+!package.json
+!README.md
+!LICENSE
+dist/**/*.map
