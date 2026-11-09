@@ -1,4 +1,4 @@
-import { dHash, laplacianVariance, pHash, toGray } from '../../shared/imageHash';
+import { dHash, pHash, sharpness, toGray } from '../../shared/imageHash';
 import type { ImageMetrics } from '../../shared/protocol';
 
 const ANALYSIS_SIZE = 256;
@@ -28,7 +28,7 @@ async function analyze(blob: Blob): Promise<ImageMetrics> {
   g.drawImage(full, 0, 0, w, h);
   full.close();
   const gray = toGray(g.getImageData(0, 0, w, h).data, w, h);
-  return { dhash: dHash(gray), phash: pHash(gray), blur: Math.round(laplacianVariance(gray) * 10) / 10 };
+  return { dhash: dHash(gray), phash: pHash(gray), sharpness: Math.round(sharpness(gray) * 10) / 10 };
 }
 
 ctx.onmessage = (ev) => {

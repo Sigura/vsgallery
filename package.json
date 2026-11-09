@@ -130,9 +130,9 @@
         },
         "loraDataset.quality.blurThreshold": {
           "type": "number",
-          "default": 50,
+          "default": 100,
           "minimum": 0,
-          "description": "Images whose sharpness (variance of the Laplacian of a 256 px grayscale copy) is below this are flagged as blurry. Raise it to flag more images."
+          "description": "Images whose sharpness is below this are flagged as blurry. Sharpness is measured on a 256 px grayscale copy as 100 × Laplacian variance ÷ mean squared gradient, so it does not depend on contrast: crisp photos score about 300, line art higher, and about 1 px of blur at 256 px brings a photo down to about 50. Raise it to flag more images."
         },
         "loraDataset.quality.maxAspect": {
           "type": "number",

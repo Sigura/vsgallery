@@ -140,22 +140,32 @@ export function groupByHash(items: readonly { id: string; hash: string }[], thre
   return [...groups.values()].filter((g) => g.length > 1);
 }
 
-/** Variance of the 4-neighbour Laplacian; low values mean few edges, i.e. a blurry image. */
-export function laplacianVariance(g: Gray): number {
+/**
+ * 100 × variance of the 4-neighbour Laplacian ÷ mean squared gradient. For an edge blurred to width σ
+ * this goes as 1/σ², independent of the edge's contrast and of how many edges the image has, so a
+ * sharp low-contrast or mostly smooth image no longer scores like a blurry one. Flat images score 0.
+ */
+export function sharpness(g: Gray): number {
   const { w, h, data } = g;
   if (w < 3 || h < 3) return 0;
   let sum = 0;
   let sq = 0;
+  let grad = 0;
   let n = 0;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
       const v = data[i - 1] + data[i + 1] + data[i - w] + data[i + w] - 4 * data[i];
+      const gx = (data[i + 1] - data[i - 1]) / 2;
+      const gy = (data[i + w] - data[i - w]) / 2;
       sum += v;
       sq += v * v;
+      grad += gx * gx + gy * gy;
       n++;
     }
   }
+  // Below ~0.01 luma² per pixel the image is flat apart from rounding noise.
+  if (grad / n < 0.01) return 0;
   const mean = sum / n;
-  return sq / n - mean * mean;
+  return (100 * (sq / n - mean * mean)) / (grad / n);
 }

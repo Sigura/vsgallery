@@ -186,7 +186,8 @@ export class DimsIndex {
 
   getMetrics(id: string, size: number, mtime: number): ImageMetrics | undefined {
     const r = this.rows[id];
-    return r && r[0] === size && r[1] === mtime ? r[4] : undefined;
+    // Rows saved without `sharpness` hold a blur value on another scale and are re-analysed.
+    return r && r[0] === size && r[1] === mtime && typeof r[4]?.sharpness === 'number' ? r[4] : undefined;
   }
 
   /** Stored next to the dimensions; dropped with them when the file changes. */

@@ -5,7 +5,7 @@ export type QualityFlag = 'small' | 'blur' | 'not8' | 'not64' | 'aspect' | 'noCa
 export interface QualityOptions {
   /** Short side below this is "small". */
   minResolution: number;
-  /** Laplacian variance (of the 256 px analysis image) below this is "blurry". */
+  /** Sharpness (see imageHash.sharpness) below this is "blurry". */
   blurThreshold: number;
   /** Long side / short side above this is "extreme aspect". */
   maxAspect: number;
@@ -20,7 +20,7 @@ export interface QualityInput {
   h: number;
   caption?: string | null;
   /** Undefined until the image has been analysed. */
-  blur?: number;
+  sharpness?: number;
 }
 
 export const QUALITY_LABELS: Record<QualityFlag, string> = {
@@ -56,7 +56,7 @@ export function qualityFlags(e: QualityInput, o: QualityOptions): QualityFlag[] 
     if (e.w % 64 || e.h % 64) out.push('not64');
     if (Math.max(e.w, e.h) / Math.min(e.w, e.h) > o.maxAspect) out.push('aspect');
   }
-  if (e.blur !== undefined && e.blur < o.blurThreshold) out.push('blur');
+  if (e.sharpness !== undefined && e.sharpness < o.blurThreshold) out.push('blur');
   if (e.caption === null) out.push('noCaption');
   else if (typeof e.caption === 'string') {
     if (isCaptionEmpty(e.caption)) out.push('emptyCaption');

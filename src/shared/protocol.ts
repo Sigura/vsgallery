@@ -27,8 +27,8 @@ export interface ImageEntry {
 export interface ImageMetrics {
   dhash: string;
   phash: string;
-  /** Variance of the Laplacian of the 256 px grayscale image. */
-  blur: number;
+  /** imageHash.sharpness of the 256 px grayscale image. */
+  sharpness: number;
 }
 
 /** Result of a tag operation for one image: the caption before and after (null = no caption file). */

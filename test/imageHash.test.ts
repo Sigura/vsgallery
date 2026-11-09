@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dHash, groupByHash, hamming, laplacianVariance, pHash, resizeGray, toGray, type Gray } from '../src/shared/imageHash';
+import { dHash, groupByHash, hamming, pHash, resizeGray, sharpness, toGray, type Gray } from '../src/shared/imageHash';
 
 function make(w: number, h: number, f: (x: number, y: number) => number): Gray {
   const data = new Float32Array(w * h);
@@ -72,10 +72,17 @@ test('groupByHash links pairs within the threshold transitively', () => {
   assert.deepEqual(groupByHash([{ id: 'a', hash: '0000000000000000' }, { id: 'b', hash: '0000000000000001' }], 0), []);
 });
 
-test('laplacianVariance: flat is 0, sharp edges score higher than blurred ones', () => {
-  assert.equal(laplacianVariance(make(10, 10, () => 77)), 0);
+test('sharpness: flat is 0, sharp edges score higher than blurred ones', () => {
+  assert.equal(sharpness(make(10, 10, () => 77)), 0);
   const sharp = make(64, 64, (x, y) => ((x >> 2) + (y >> 2)) % 2 ? 255 : 0);
   const blurred = make(64, 64, (x, y) => 128 + 40 * Math.sin(x / 6) * Math.sin(y / 6));
-  assert.ok(laplacianVariance(sharp) > 100 * laplacianVariance(blurred));
-  assert.equal(laplacianVariance(make(2, 2, () => 1)), 0);
+  assert.ok(sharpness(sharp) > 100 * sharpness(blurred));
+  assert.equal(sharpness(make(2, 2, () => 1)), 0);
+});
+
+test('sharpness: independent of contrast', () => {
+  const edges = (amp: number) => make(64, 64, (x, y) => 128 + amp * ((((x >> 3) + (y >> 3)) % 2) * 2 - 1));
+  const hi = sharpness(edges(100));
+  assert.ok(hi > 0);
+  assert.ok(Math.abs(sharpness(edges(10)) - hi) < 1e-3 * hi);
 });

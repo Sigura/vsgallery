@@ -39,7 +39,7 @@ function config() {
     tagger: taggerConfig(c),
     quality: {
       minResolution: c.get<number>('minResolution', 512),
-      blurThreshold: c.get<number>('quality.blurThreshold', 50),
+      blurThreshold: c.get<number>('quality.blurThreshold', 100),
       maxAspect: c.get<number>('quality.maxAspect', 2.5),
       minWords: c.get<number>('quality.minWords', 3),
       maxTokens: c.get<number>('quality.maxTokens', 75),

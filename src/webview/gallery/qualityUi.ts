@@ -16,7 +16,7 @@ const BADGES: Partial<Record<QualityFlag, [text: string, cls: 'warn' | 'info']>>
 };
 
 export function flagsOf(e: ImageEntry, s: GallerySettings): QualityFlag[] {
-  return qualityFlags({ w: e.w, h: e.h, caption: e.caption, blur: e.metrics?.blur }, s.quality);
+  return qualityFlags({ w: e.w, h: e.h, caption: e.caption, sharpness: e.metrics?.sharpness }, s.quality);
 }
 
 function flagTitle(f: QualityFlag, e: ImageEntry, s: GallerySettings): string {
@@ -25,7 +25,7 @@ function flagTitle(f: QualityFlag, e: ImageEntry, s: GallerySettings): string {
     case 'small':
       return `Short side ${Math.min(e.w, e.h)} px is below ${q.minResolution}`;
     case 'blur':
-      return `Sharpness ${e.metrics?.blur} is below ${q.blurThreshold} (loraDataset.quality.blurThreshold)`;
+      return `Sharpness ${e.metrics?.sharpness} is below ${q.blurThreshold} (loraDataset.quality.blurThreshold)`;
     case 'not8':
       return `${e.w}×${e.h} is not divisible by 8`;
     case 'aspect':

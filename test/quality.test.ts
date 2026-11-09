@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { approxTokens, qualityFlags, wordCount, type QualityOptions } from '../src/shared/quality';
 
-const o: QualityOptions = { minResolution: 512, blurThreshold: 50, maxAspect: 2.5, minWords: 3, maxTokens: 20 };
+const o: QualityOptions = { minResolution: 512, blurThreshold: 100, maxAspect: 2.5, minWords: 3, maxTokens: 20 };
 
 test('size flags need known dimensions', () => {
   assert.deepEqual(qualityFlags({ w: 1024, h: 1024, caption: 'a cat on a mat' }, o), []);
@@ -14,8 +14,8 @@ test('size flags need known dimensions', () => {
 });
 
 test('blur flag only once analysed', () => {
-  assert.deepEqual(qualityFlags({ w: 1024, h: 1024, caption: 'a cat on a mat', blur: 10 }, o), ['blur']);
-  assert.deepEqual(qualityFlags({ w: 1024, h: 1024, caption: 'a cat on a mat', blur: 50 }, o), []);
+  assert.deepEqual(qualityFlags({ w: 1024, h: 1024, caption: 'a cat on a mat', sharpness: 10 }, o), ['blur']);
+  assert.deepEqual(qualityFlags({ w: 1024, h: 1024, caption: 'a cat on a mat', sharpness: 100 }, o), []);
 });
 
 test('caption flags', () => {
