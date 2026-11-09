@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "publisher": "local",
   "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sigura/vsgallery.git"
+  },
   "engines": {
     "vscode": "^1.120.0"
   },
