@@ -4,7 +4,7 @@
   "description": "Curate image + caption datasets for Stable Diffusion LoRA training.",
   "version": "0.1.0",
   "publisher": "local",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "engines": {
     "vscode": "^1.120.0"
   },
