@@ -12,16 +12,14 @@ const MAX_CHANGE_ROWS = 300;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&${({ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' })[c]};`);
 
 /**
- * Dataset-wide tag operations on the selected or visible images. Every change is previewed
- * (computed by the host from the files on disk) before it can be applied.
+ * Dataset-wide tag operations on the selected or visible images. Apply writes directly; Preview
+ * optionally shows the changes (computed by the host from the files on disk) first.
  */
 export class TagTools {
   private readonly dialog: HTMLDialogElement;
   private readonly q = <T extends HTMLElement>(sel: string) => this.dialog.querySelector(sel) as T;
   private ids: string[] = [];
   private requestId = 0;
-  /** The previewed operation; Apply is only possible for exactly this one. */
-  private previewed: { op: TagOp; ids: string[]; count: number } | undefined;
   private busy = false;
 
   constructor(private readonly ctx: ToolsContext) {
@@ -80,6 +78,13 @@ export class TagTools {
       if (name === 'kind' && (this.q('[name=kind]') as HTMLSelectElement).value === 'first' && !tag.value.trim()) tag.value = trigger;
       this.formChanged();
     });
+    for (const name of ['tag', 'to']) {
+      this.q(`[name=${name}]`).addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        e.preventDefault();
+        this.run(false);
+      });
+    }
     this.q('[name=preview]').addEventListener('click', () => this.run(true));
     this.q('[name=apply]').addEventListener('click', () => this.run(false));
   }
@@ -132,10 +137,10 @@ export class TagTools {
       addEnd: 'Appends the tag unless the caption already has it. Images without a caption file get one.',
       first: 'Moves the tag to the front; captions without it get it inserted. Images without a caption file get one.',
     }[kind];
-    this.previewed = undefined;
     const invalid = validateTagOp(this.readOp());
-    (this.q('[name=preview]') as HTMLButtonElement).disabled = !!invalid || this.busy || !this.ids.length;
-    (this.q('[name=apply]') as HTMLButtonElement).disabled = true;
+    const disabled = !!invalid || this.busy || !this.ids.length;
+    (this.q('[name=preview]') as HTMLButtonElement).disabled = disabled;
+    (this.q('[name=apply]') as HTMLButtonElement).disabled = disabled;
     this.q('.op-summary').textContent = invalid && this.hasInput() ? invalid : '';
     this.q('.tags-changes').replaceChildren();
   }
@@ -162,14 +167,13 @@ export class TagTools {
   }
 
   private run(dryRun: boolean): void {
-    const op = dryRun ? this.readOp() : this.previewed?.op;
-    const ids = dryRun ? this.ids : this.previewed?.ids;
-    if (!op || !ids || this.busy) return;
+    const op = this.readOp();
+    const ids = this.ids;
+    if (validateTagOp(op) || !ids.length || this.busy) return;
     this.busy = true;
     (this.q('[name=preview]') as HTMLButtonElement).disabled = true;
     (this.q('[name=apply]') as HTMLButtonElement).disabled = true;
     this.q('.op-summary').textContent = dryRun ? 'Reading caption files…' : 'Writing caption files…';
-    if (dryRun) this.previewed = { op, ids, count: 0 };
     this.ctx.post({ type: 'tagOp', requestId: ++this.requestId, ids, op, dryRun });
   }
 
@@ -179,22 +183,23 @@ export class TagTools {
     const errors = m.errors.filter((e) => e.id !== '');
     if (m.applied) {
       for (const c of m.changes) this.ctx.captionWritten(c.id, c.after);
-      this.previewed = undefined;
       this.renderFreq();
-    } else if (this.previewed) this.previewed.count = m.changes.length;
+    }
     const n = m.changes.length;
     const files = `${n} caption file${n === 1 ? '' : 's'}`;
     let summary = opError
       ? opError.error
-      : m.applied
-        ? `Changed ${files}.`
-        : n
-          ? `${files} will change (of ${this.previewed?.ids.length ?? 0} images). Review, then Apply.`
-          : 'Nothing would change.';
+      : !n
+        ? m.applied
+          ? 'Nothing changed.'
+          : 'Nothing would change.'
+        : m.applied
+          ? `Changed ${files}.`
+          : `${files} will change (of ${this.ids.length} images).`;
     if (errors.length) summary += ` ${errors.length} failed (see Output › LoRA Dataset Studio).`;
     this.q('.op-summary').textContent = summary;
     (this.q('[name=preview]') as HTMLButtonElement).disabled = false;
-    (this.q('[name=apply]') as HTMLButtonElement).disabled = m.applied || !n || !!opError;
+    (this.q('[name=apply]') as HTMLButtonElement).disabled = !!opError;
     this.renderChanges(m.changes, errors);
   }
 
