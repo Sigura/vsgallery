@@ -606,7 +606,7 @@ export class GalleryPanel {
 </header>
 <div class="scan-bar" id="scanBar" hidden></div>
 <div class="toolbar filters">
-  <input id="search" type="search" placeholder="Search…" aria-label="Search">
+  <input id="search" type="search" placeholder="Search…  (-word excludes)" title="Every word must be found, in any order; &quot;two words&quot; is one phrase; -word or -&quot;two words&quot; excludes. In Tag scope the text is one tag name." aria-label="Search">
   <select id="scope" aria-label="Search in">
     <option value="any">Name or caption</option>
     <option value="name">File name</option>

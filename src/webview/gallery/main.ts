@@ -2,6 +2,7 @@ import './gallery.css';
 import { entryComparator, naturalCompare } from '../../shared/naturalSort';
 import { folderTag } from '../../shared/kohya';
 import { isCaptionEmpty, parseTags } from '../../shared/captions';
+import { parseSearch } from '../../shared/search';
 import type { GallerySettings, HostToWebview, ImageEntry, SortDir, SortKey, ViewMode, WebviewToHost } from '../../shared/protocol';
 import { ThumbLoader } from './thumbLoader';
 import { VirtualGrid, type Anchor, type Group } from './virtualGrid';
@@ -218,19 +219,26 @@ function matches(e: ImageEntry): boolean {
   if (ui.fNot8 && !notDiv8(e)) return false;
   if (ui.fSmall && !(e.w > 0 && Math.min(e.w, e.h) < (settings?.minResolution ?? 512))) return false;
   if (settings && !matchesQuality(e, settings, ui.fQuality)) return false;
-  const q = ui.search.trim().toLowerCase();
-  if (!q) return true;
-  const caption = typeof e.caption === 'string' ? e.caption : '';
-  switch (ui.scope) {
-    case 'name':
-      return e.id.toLowerCase().includes(q);
-    case 'caption':
-      return caption.toLowerCase().includes(q);
-    case 'tag':
-      return parseTags(caption).some((t) => t.toLowerCase() === q);
-    case 'any':
-      return e.id.toLowerCase().includes(q) || caption.toLowerCase().includes(q);
-  }
+  const { include, text, exclude } = parseSearch(ui.search);
+  if (!include.length && !exclude.length) return true;
+  const name = e.id.toLowerCase();
+  const caption = typeof e.caption === 'string' ? e.caption.toLowerCase() : '';
+  const tags = ui.scope === 'tag' ? parseTags(caption) : [];
+  const hit = (q: string): boolean => {
+    switch (ui.scope) {
+      case 'name':
+        return name.includes(q);
+      case 'caption':
+        return caption.includes(q);
+      case 'tag':
+        return tags.includes(q);
+      case 'any':
+        return name.includes(q) || caption.includes(q);
+    }
+  };
+  // In tag scope the remaining text names one tag, so multi-word tags work without quotes.
+  if (ui.scope === 'tag') return (!text || hit(text)) && !exclude.some(hit);
+  return include.every(hit) && !exclude.some(hit);
 }
 
 function buildGroups(): Group[] {
