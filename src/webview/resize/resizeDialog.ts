@@ -1,4 +1,5 @@
 import type { ImageEntry, ResizeOutput } from '../../shared/protocol';
+import { loadImage } from '../imageLoad';
 import { bucketsFor, planResize, type ResizeMode, type ResizeOptions, type ResizePlan } from '../../shared/resizePlan';
 
 export interface ResizeUiState extends ResizeOptions {
@@ -9,6 +10,7 @@ export interface ResizeUiState extends ResizeOptions {
 export interface ResizeDialogHost {
   entry(id: string): ImageEntry | undefined;
   previewUrl(e: ImageEntry): string | undefined;
+  imageUrl(e: ImageEntry): string;
   /** Dataset folder path; the default output folder is next to it. */
   folderPath(): string;
   editorBackup(): boolean;
@@ -216,7 +218,7 @@ export class ResizeDialog {
     this.previewId = id;
     for (const r of this.dialog.querySelectorAll<HTMLElement>('.resize-row')) r.classList.toggle('on', r.dataset.id === id);
     const e = this.host.entry(id);
-    const url = e && this.host.previewUrl(e);
+    const url = e && (this.host.previewUrl(e) ?? this.host.imageUrl(e));
     if (!e || !url) {
       this.drawPreview(e);
       return;
@@ -230,7 +232,8 @@ export class ResizeDialog {
     this.previewImg = img;
     img.onload = () => this.previewImg === img && this.drawPreview(e);
     img.onerror = () => this.previewImg === img && this.drawPreview(e);
-    img.src = url;
+    const full = this.host.imageUrl(e);
+    loadImage(img, url, (failed) => (failed === full ? undefined : full));
     this.drawPreview(e);
   }
 

@@ -1,6 +1,7 @@
 import { QUALITY_LABELS } from '../../shared/quality';
 import type { ToolsContext } from './datasetTools';
 import { flagsOf } from './qualityUi';
+import { loadImage } from '../imageLoad';
 
 type Verdict = 'keep' | 'delete' | 'skip';
 
@@ -179,13 +180,13 @@ export class ReviewMode {
       this.shownId = id;
       // Show the thumbnail at once and swap in the full image when it has loaded.
       const preview = this.ctx.previewUrl(e);
-      img.src = preview ?? url;
+      loadImage(img, preview ?? url, (failed) => (failed === url ? undefined : url));
       if (preview) {
         const full = new Image();
         full.onload = () => {
-          if (this.ids[this.index] === id) img.src = url;
+          if (this.ids[this.index] === id) loadImage(img, url);
         };
-        full.src = url;
+        loadImage(full, url);
       }
     }
     const next = this.ids[this.index + 1] && this.ctx.entry(this.ids[this.index + 1]);

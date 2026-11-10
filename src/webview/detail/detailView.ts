@@ -4,6 +4,7 @@ import { parseTags } from '../../shared/captions';
 import { ImageViewer, isTyping } from './imageViewer';
 import { CaptionEditor } from './captionEditor';
 import { applyIcons } from '../icons';
+import { fetchBlob } from '../imageLoad';
 import { ImageEditor, type EditorUiState } from './editor/imageEditor';
 
 export interface DetailHost {
@@ -400,12 +401,7 @@ export class DetailView {
     const cached = this.bitmaps.get(e.id);
     if (cached?.key === key) return cached.promise;
     if (cached) cached.promise.then((b) => b.close(), () => undefined);
-    const promise = fetch(this.host.imageUrl(e))
-      .then((res) => {
-        if (!res.ok) throw new Error(res.status === 404 ? 'file not found' : `HTTP ${res.status}`);
-        return res.blob();
-      })
-      .then((blob) => createImageBitmap(blob));
+    const promise = fetchBlob(this.host.imageUrl(e)).then((blob) => createImageBitmap(blob));
     this.bitmaps.set(e.id, { key, promise });
     promise.catch(() => {
       if (this.bitmaps.get(e.id)?.promise === promise) this.bitmaps.delete(e.id);

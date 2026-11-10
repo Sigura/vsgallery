@@ -16,6 +16,10 @@ export interface ToolsHost {
   /** Thumbnail URL if one is available without generating it. */
   previewUrl(e: ImageEntry): string | undefined;
   imageUrl(e: ImageEntry): string;
+  /** Thumbnails to generate for a dialog besides the grid's visible tiles (replaces the previous list). */
+  wantThumbs(ids: readonly string[]): void;
+  /** A preview URL failed to load; returns another URL to try, if any. */
+  thumbFailed(e: ImageEntry, failed: string): string | undefined;
   settings(): GallerySettings;
   post(m: WebviewToHost): void;
   deleteIds(ids: string[]): void;
@@ -124,6 +128,11 @@ export class DatasetTools {
 
   entryChanged(id: string): void {
     this.review.entryChanged(id);
+  }
+
+  /** A thumbnail was generated (or failed) for this entry. */
+  thumbChanged(id: string): void {
+    this.dups.thumbChanged(id);
   }
 
   isDuplicate(id: string): boolean {

@@ -1,6 +1,7 @@
 import { groupByHash } from '../../shared/imageHash';
 import type { ImageEntry } from '../../shared/protocol';
 import type { ToolsContext } from './datasetTools';
+import { loadImage } from '../imageLoad';
 
 const MAX_GROUPS = 200;
 
@@ -67,6 +68,7 @@ export class DuplicatesDialog {
     this.dialog.addEventListener('close', () => {
       this.unsubscribe?.();
       this.unsubscribe = undefined;
+      this.ctx.wantThumbs([]);
     });
     const hash = this.q('[name=hash]') as HTMLSelectElement;
     const th = this.q('[name=threshold]') as HTMLInputElement;
@@ -122,6 +124,19 @@ export class DuplicatesDialog {
     this.dialog.showModal();
   }
 
+  /** Shows a thumbnail that was generated after the tile was rendered. */
+  thumbChanged(id: string): void {
+    if (!this.isOpen || !this.inGroup.has(id)) return;
+    const img = this.q('.dup-groups').querySelector<HTMLImageElement>(`.dup-tile[data-id="${CSS.escape(id)}"] img`);
+    if (img) this.showThumb(img, id);
+  }
+
+  private showThumb(img: HTMLImageElement, id: string): void {
+    const e = this.ctx.entry(id);
+    const url = e && this.ctx.previewUrl(e);
+    if (e && url) loadImage(img, url, (failed) => this.ctx.thumbFailed(e, failed));
+  }
+
   /** Entries removed elsewhere drop out of the groups. */
   entriesRemoved(): void {
     if (this.isOpen) this.regroup();
@@ -157,11 +172,10 @@ export class DuplicatesDialog {
       const tiles = g
         .map((id) => {
           const e = this.ctx.entry(id)!;
-          const src = this.ctx.previewUrl(e);
           const del = this.marked.has(id);
           return (
             `<div class="dup-tile ${del ? 'del' : 'keep'}" data-id="${esc(id)}" title="${esc(id)}">` +
-            `<div class="dup-img">${src ? `<img src="${esc(src)}" alt="" draggable="false">` : ''}<span class="dup-mark">${del ? 'delete' : 'keep'}</span></div>` +
+            `<div class="dup-img"><img alt="" draggable="false"><span class="dup-mark">${del ? 'delete' : 'keep'}</span></div>` +
             `<div class="dup-name">${esc(e.name)}</div>` +
             `<div class="dup-sub">${e.w ? `${e.w}×${e.h}` : '?'} · ${fileSize(e.size)}${e.dir ? ` · ${esc(e.dir)}` : ''}</div></div>`
           );
@@ -173,6 +187,13 @@ export class DuplicatesDialog {
     if (!this.groups.length) html.push('<p class="hint">No near-duplicates at this threshold.</p>');
     const scroll = this.q('.dup-groups').scrollTop;
     this.q('.dup-groups').innerHTML = html.join('');
+    const shown: string[] = [];
+    for (const img of this.q('.dup-groups').querySelectorAll<HTMLImageElement>('.dup-tile img')) {
+      const id = img.closest<HTMLElement>('.dup-tile')!.dataset.id!;
+      shown.push(id);
+      this.showThumb(img, id);
+    }
+    this.ctx.wantThumbs(shown);
     this.q('.dup-groups').scrollTop = scroll;
     const del = this.q('[name=delete]') as HTMLButtonElement;
     del.textContent = `Delete marked (${this.marked.size})`;

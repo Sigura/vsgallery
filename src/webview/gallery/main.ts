@@ -143,7 +143,7 @@ const selection = new SelectionController(
 const detail = new DetailView($('detail'), {
   entry: (id) => entries.get(id),
   imageUrl: (e) => imageUrl(e),
-  previewUrl: (e) => loader?.objectUrl(e.thumb) ?? (e.hasThumb ? thumbUrl(e) : undefined),
+  previewUrl,
   post,
   settings: () => settings!,
   syncExplorer: () => ui.syncExplorer,
@@ -186,8 +186,13 @@ const tools = new DatasetTools({
   entries: () => entries.values(),
   entry: (id) => entries.get(id),
   targets: () => captionTargets(),
-  previewUrl: (e) => loader?.objectUrl(e.thumb) ?? (e.hasThumb ? thumbUrl(e) : undefined),
+  previewUrl,
   imageUrl: (e) => imageUrl(e),
+  wantThumbs: (ids) => {
+    toolThumbs = ids;
+    requestThumbs();
+  },
+  thumbFailed,
   settings: () => settings!,
   post,
   deleteIds: (ids) => post({ type: 'delete', ids }),
@@ -424,7 +429,8 @@ function setBusy(busy: boolean): void {
 const resizeDialog = new ResizeDialog(
   {
     entry: (id) => entries.get(id),
-    previewUrl: (e) => loader?.objectUrl(e.thumb) ?? (e.hasThumb ? thumbUrl(e) : undefined),
+    previewUrl,
+    imageUrl,
     folderPath: () => folderPath,
     editorBackup: () => settings.editorBackup,
     saveState: (s) => {
@@ -551,17 +557,46 @@ function bindHeader(el: HTMLElement, g: Group): void {
   el.querySelector('.n')!.textContent = `${g.entries.length}`;
 }
 
-function visibleChanged(inView: ImageEntry[], overscan: ImageEntry[]): void {
+function previewUrl(e: ImageEntry): string | undefined {
+  return loader?.objectUrl(e.thumb) ?? (e.hasThumb ? thumbUrl(e) : undefined);
+}
+
+/**
+ * A preview failed to load outside the grid. A cached thumbnail that is gone gets regenerated;
+ * returns another URL to try (e.g. the cached file after its object URL was evicted).
+ */
+function thumbFailed(e: ImageEntry, failed: string): string | undefined {
+  if (failed === thumbUrl(e) && e.hasThumb) {
+    e.hasThumb = false;
+    grid?.refresh(e.id);
+    requestThumbs();
+  }
+  const next = previewUrl(e);
+  return next !== failed ? next : undefined;
+}
+
+let visible: { inView: ImageEntry[]; overscan: ImageEntry[] } = { inView: [], overscan: [] };
+/** Thumbnails a dialog shows (near-duplicates), generated along with the grid's visible tiles. */
+let toolThumbs: readonly string[] = [];
+
+function requestThumbs(): void {
   if (!loader) return;
   const keep = new Set<string>();
-  const want = (e: ImageEntry, priority: number) => {
-    if (e.hasThumb || loader!.objectUrl(e.thumb)) return;
+  const want = (e: ImageEntry | undefined, priority: number) => {
+    if (!e || e.hasThumb || loader!.objectUrl(e.thumb)) return;
     keep.add(e.thumb);
     loader!.request(e, imageUrl(e), priority);
   };
-  inView.forEach((e, i) => want(e, i));
-  overscan.forEach((e, i) => want(e, 100000 + i));
+  toolThumbs.forEach((id, i) => want(entries.get(id), i));
+  visible.inView.forEach((e, i) => want(e, i));
+  visible.overscan.forEach((e, i) => want(e, 100000 + i));
   loader.retain(keep);
+}
+
+function visibleChanged(inView: ImageEntry[], overscan: ImageEntry[]): void {
+  if (!loader) return;
+  visible = { inView, overscan };
+  requestThumbs();
   updateStatus();
   saveStateSoon();
 }
@@ -603,6 +638,7 @@ async function init(m: Extract<HostToWebview, { type: 'init' }>): Promise<void> 
     post,
     (id) => {
       grid?.refresh(id);
+      tools.thumbChanged(id);
       updateStatus();
     },
   );
