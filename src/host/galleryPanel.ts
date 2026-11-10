@@ -601,7 +601,7 @@ export class GalleryPanel {
   <label title="Thumbnail size (Ctrl+wheel)">Size
     <input id="size" type="range" min="64" max="512" step="8">
   </label>
-  <button id="refresh" title="Rescan folder">Refresh</button>
+  <button id="refresh" data-icon="refresh" title="Rescan folder">Refresh</button>
   <button id="help" title="Keyboard shortcuts (?)">?</button>
 </header>
 <div class="scan-bar" id="scanBar" hidden></div>

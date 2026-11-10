@@ -3,6 +3,7 @@ import type { BrushSettings } from './brush';
 import type { CropTool } from './cropTool';
 import type { EditDocument } from './document';
 import type { EditorUiState, ToolName } from './imageEditor';
+import { applyIcons } from '../../icons';
 
 const SDXL = kohyaBuckets(1024, 256, 2048, 64);
 const SD15 = kohyaBuckets(512, 256, 1024, 64);
@@ -79,11 +80,11 @@ export class EditorBar {
         <label title="Maximum difference per channel from the clicked pixel">Tolerance <input data-k="tolerance" type="number" min="0" max="255" step="1"></label>
       </div>
       <div class="opts" data-for="selRect lasso wand">
-        <button data-k="selFill" title="Fill the selection from its surroundings (content-aware)">Fill</button>
-        <button data-k="selClear" title="Make the selected pixels of the active layer transparent (Delete)">Clear</button>
-        <button data-k="selInvert" title="Invert selection (Ctrl+Shift+I)">Invert</button>
-        <button data-k="selAll" title="Select all (Ctrl+A)">All</button>
-        <button data-k="selNone" title="Deselect (Esc or Ctrl+D)">Deselect</button>
+        <button data-k="selFill" data-icon="fill" title="Fill the selection from its surroundings (content-aware)">Fill</button>
+        <button data-k="selClear" data-icon="clear" title="Make the selected pixels of the active layer transparent (Delete)">Clear</button>
+        <button data-k="selInvert" data-icon="invert" title="Invert selection (Ctrl+Shift+I)">Invert</button>
+        <button data-k="selAll" data-icon="selAll" title="Select all (Ctrl+A)">All</button>
+        <button data-k="selNone" data-icon="selNone" title="Deselect (Esc or Ctrl+D)">Deselect</button>
       </div>
       <div class="opts" data-for="brush eraser wet clone heal">
         <label title="Brush size ([ and ])">Size <input data-k="size" type="range" min="1" max="500"></label>
@@ -132,23 +133,24 @@ export class EditorBar {
           <option value="64">Snap ÷64</option>
         </select>
         <span data-k="cropSize" class="info"></span>
-        <button data-k="cropApply" title="Apply crop (Enter)">Apply</button>
-        <button data-k="cropCancel" title="Cancel (Esc)">Cancel</button>
+        <button data-k="cropApply" data-icon="check" title="Apply crop (Enter)">Apply</button>
+        <button data-k="cropCancel" data-icon="close" title="Cancel (Esc)">Cancel</button>
       </div>
       <span class="spacer"></span>
       <div class="seg">
-        <button data-k="rotL" title="Rotate left">⟲</button>
-        <button data-k="rotR" title="Rotate right">⟳</button>
-        <button data-k="flipH" title="Flip horizontal">⇋</button>
-        <button data-k="flipV" title="Flip vertical">⇵</button>
+        <button data-k="rotL" data-icon="rotL" data-icon-only title="Rotate left">⟲</button>
+        <button data-k="rotR" data-icon="rotR" data-icon-only title="Rotate right">⟳</button>
+        <button data-k="flipH" data-icon="flipH" data-icon-only title="Flip horizontal">⇋</button>
+        <button data-k="flipV" data-icon="flipV" data-icon-only title="Flip vertical">⇵</button>
       </div>
       <div class="seg">
-        <button data-k="undo" title="Undo (Ctrl+Z)">↶</button>
-        <button data-k="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+        <button data-k="undo" data-icon="undo" data-icon-only title="Undo (Ctrl+Z)">↶</button>
+        <button data-k="redo" data-icon="redo" data-icon-only title="Redo (Ctrl+Shift+Z)">↷</button>
       </div>
-      <button data-k="before" title="Hold to see the original (or hold \\)">Before</button>
-      <button data-k="save" title="Overwrite the image (a .bak backup is kept if enabled)">Save</button>
-      <button data-k="saveCopy" title="Save as a new file next to it, with a copy of the caption">Save copy</button>`;
+      <button data-k="before" data-icon="compare" title="Hold to see the original (or hold \\)">Before</button>
+      <button data-k="save" data-icon="save" title="Overwrite the image (a .bak backup is kept if enabled)">Save</button>
+      <button data-k="saveCopy" data-icon="saveCopy" title="Save as a new file next to it, with a copy of the caption">Save copy</button>`;
+    applyIcons(this.bar);
     const el: Record<string, HTMLElement> = {};
     this.bar.querySelectorAll<HTMLElement>('[data-k]').forEach((n) => (el[n.dataset.k!] = n));
     const input = (k: string) => el[k] as HTMLInputElement;
