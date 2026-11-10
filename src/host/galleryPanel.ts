@@ -158,6 +158,42 @@ export class GalleryPanel {
     if (p) void p.deleteImages(p.selection);
   }
 
+  /** Explorer folder command: moves the selection of a gallery whose dataset contains `target`. */
+  static async moveSelectedInto(target: vscode.Uri): Promise<void> {
+    const dirIn = (p: GalleryPanel): string | undefined => {
+      const root = p.folder;
+      if (root.scheme !== target.scheme || root.authority !== target.authority) return undefined;
+      const base = root.path.replace(/\/+$/, '');
+      if (target.path === base) return '';
+      return target.path.startsWith(`${base}/`) ? target.path.slice(base.length + 1).replace(/\/+$/, '') : undefined;
+    };
+    const candidates = [GalleryPanel.active, ...GalleryPanel.instances].filter((p): p is GalleryPanel => !!p);
+    const p = candidates.find((c) => c.selection.length && dirIn(c) !== undefined);
+    if (!p) {
+      const why = candidates.some((c) => dirIn(c) !== undefined)
+        ? 'select the images to move in the gallery first'
+        : 'this folder is not inside a dataset open in a gallery';
+      void vscode.window.showWarningMessage(`LoRA Dataset: nothing to move, ${why}.`);
+      return;
+    }
+    const dir = dirIn(p)!;
+    try {
+      await p.moveImages(p.selection, dir);
+    } catch (e) {
+      p.svc.log.error(`Moving images to ${dir || 'the dataset root'} failed: ${describeError(e)}`);
+      void vscode.window.showErrorMessage(`LoRA Dataset: could not move the images: ${describeError(e)}`);
+    }
+  }
+
+  static copyCaptionInActive(id: string | undefined): void {
+    const p = GalleryPanel.active;
+    if (!p || !id) return;
+    p.copyCaption(id).catch((e: unknown) => {
+      p.svc.log.error(`Copying the caption of ${id} failed: ${describeError(e)}`);
+      void vscode.window.showErrorMessage(`LoRA Dataset: could not copy the caption of ${id}: ${describeError(e)}`);
+    });
+  }
+
   static autoCaptionInActive(): void {
     GalleryPanel.active?.post({ type: 'autoCaption' });
   }
@@ -476,6 +512,22 @@ export class GalleryPanel {
   }
 
   /** Combines generated tags with the caption file as it is on disk now, so concurrent edits are not lost. */
+  /** Copies the caption file's text as it is on disk. */
+  private async copyCaption(id: string): Promise<void> {
+    if (!this.dataset.entries.has(id)) return;
+    const rel = await this.dataset.captionTarget(id);
+    let text: string;
+    try {
+      text = decodeCaption(await this.svc.fs.readFile(relUri(this.folder, rel)));
+    } catch (e) {
+      if (!isNotFound(e)) throw e;
+      void vscode.window.showInformationMessage(`LoRA Dataset: ${id} has no caption file.`);
+      return;
+    }
+    await vscode.env.clipboard.writeText(text);
+    vscode.window.setStatusBarMessage(`Caption of ${id.slice(id.lastIndexOf('/') + 1)} copied`, 3000);
+  }
+
   private async applyCaption(requestId: number, id: string, tags: string[], mode: ExistingCaptionMode): Promise<void> {
     const reply = (extra: { text?: string; skipped?: boolean; error?: string }) =>
       this.post({ type: 'captionApplied', requestId, id, ...extra });

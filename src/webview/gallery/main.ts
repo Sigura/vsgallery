@@ -475,7 +475,6 @@ function createTile(): HTMLElement {
   const el = document.createElement('div');
   el.className = 'tile';
   el.setAttribute('role', 'gridcell');
-  el.dataset.vscodeContext = JSON.stringify({ webviewSection: 'tile' });
   el.innerHTML =
     '<div class="thumb"><img draggable="false" alt=""><span class="placeholder"></span><div class="badges"></div>' +
     '<span class="tile-check" title="Select (Ctrl+click)"></span></div>' +
@@ -505,6 +504,8 @@ function badge(parent: HTMLElement, text: string, cls: string, title: string): v
 function bindTile(el: HTMLElement, e: ImageEntry): void {
   const changed = el.dataset.id !== e.id;
   el.dataset.id = e.id;
+  // Passed to context-menu commands, which act on the tile that was right-clicked.
+  el.dataset.vscodeContext = JSON.stringify({ webviewSection: 'tile', imageId: e.id });
   const selected = selection.selected.has(e.id);
   el.setAttribute('aria-selected', String(selected));
   el.classList.toggle('selected', selected);

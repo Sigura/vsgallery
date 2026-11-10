@@ -56,6 +56,16 @@
         "command": "loraDataset.autoCaption",
         "title": "Auto-caption Selected or Visible Images",
         "category": "LoRA Dataset"
+      },
+      {
+        "command": "loraDataset.copyCaption",
+        "title": "Copy Caption",
+        "category": "LoRA Dataset"
+      },
+      {
+        "command": "loraDataset.moveSelectedHere",
+        "title": "Move Selected Gallery Images Here",
+        "category": "LoRA Dataset"
       }
     ],
     "menus": {
@@ -69,11 +79,24 @@
           "command": "loraDataset.openImage",
           "when": "!explorerResourceIsFolder && resourceExtname =~ /^\\.(png|jpe?g|webp|bmp)$/i",
           "group": "navigation@90"
+        },
+        {
+          "command": "loraDataset.moveSelectedHere",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@91"
         }
       ],
       "commandPalette": [
         {
           "command": "loraDataset.openImage",
+          "when": "false"
+        },
+        {
+          "command": "loraDataset.copyCaption",
+          "when": "false"
+        },
+        {
+          "command": "loraDataset.moveSelectedHere",
           "when": "false"
         },
         {
@@ -86,6 +109,11 @@
         }
       ],
       "webview/context": [
+        {
+          "command": "loraDataset.copyCaption",
+          "when": "(webviewId == 'loraDataset.gallery' || webviewId == 'loraDataset.image') && webviewSection == 'tile'",
+          "group": "1_copy"
+        },
         {
           "command": "loraDataset.deleteSelected",
           "when": "(webviewId == 'loraDataset.gallery' || webviewId == 'loraDataset.image') && webviewSection == 'tile'",

@@ -23,6 +23,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('loraDataset.deleteSelected', () => GalleryPanel.deleteSelectedInActive()),
     vscode.commands.registerCommand('loraDataset.autoCaption', () => GalleryPanel.autoCaptionInActive()),
+    vscode.commands.registerCommand('loraDataset.moveSelectedHere', (uri?: vscode.Uri) => uri && GalleryPanel.moveSelectedInto(uri)),
+    vscode.commands.registerCommand('loraDataset.copyCaption', (ctx?: { imageId?: string }) => GalleryPanel.copyCaptionInActive(ctx?.imageId)),
     vscode.commands.registerCommand('loraDataset.clearThumbnailCache', async () => {
       try {
         await cache.clear();
