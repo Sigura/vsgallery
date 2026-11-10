@@ -123,6 +123,75 @@ export class Dataset {
     });
   }
 
+  /**
+   * Renames a dataset subfolder and carries its cached dimensions, metrics and thumbnails over to
+   * the new paths, so nothing has to be re-read. Throws when the rename fails (e.g. target exists).
+   */
+  renameFolder(from: string, to: string): Promise<void> {
+    return this.serialize(async () => {
+      const prefix = `${from}/`;
+      const moved = [...this.entries.values()].filter((e) => e.id.startsWith(prefix));
+      await this.fs.rename(relUri(this.root, from), relUri(this.root, to));
+      this.dims.renameFolder(from, to);
+      const q = new TaskQueue(8);
+      await Promise.all(
+        moved.map((e) => {
+          const uri = relUri(this.root, `${to}/${e.id.slice(prefix.length)}`);
+          const key = ThumbCache.key(uri, e.size, e.mtime, this.opts.resolution);
+          return q
+            .add(e.id, 0, async () => {
+              if (e.hasThumb && (await this.cache.move(e.thumb, key))) this.thumbKeys.add(key);
+            })
+            .catch((err: unknown) => this.log.warn(`Cannot move thumbnail of ${e.id}: ${describeError(err)}`));
+        }),
+      );
+      await this.refreshFolder(from);
+      await this.refreshFolder(to);
+    });
+  }
+
+  /**
+   * Moves images and their caption files into folder `dir` ('' = dataset root), keeping cached
+   * dimensions, metrics and thumbnails. Nothing is overwritten: an image whose image or caption
+   * name is taken in `dir` is left in place and reported. Images already in `dir` are skipped.
+   */
+  moveImages(ids: readonly string[], dir: string): Promise<{ moved: number; errors: { id: string; error: string }[] }> {
+    return this.serialize(async () => {
+      const moving = new Set(ids);
+      const touched = new Set<string>();
+      const errors: { id: string; error: string }[] = [];
+      let moved = 0;
+      const into = (name: string) => (dir ? `${dir}/${name}` : name);
+      for (const id of ids) {
+        const e = this.entries.get(id);
+        if (!e || e.dir === dir) continue;
+        try {
+          const captions = await this.captionFiles(id, moving);
+          const plan: [string, string][] = [[id, into(e.name)], ...captions.map((c): [string, string] => [c, into(splitRel(c).name)])];
+          for (const [, to] of plan) {
+            if (await this.fs.exists(relUri(this.root, to))) throw new Error(`${to} already exists`);
+          }
+          for (const [from, to] of plan) await this.fs.rename(relUri(this.root, from), relUri(this.root, to));
+          const newId = plan[0][1];
+          touched.add(id);
+          touched.add(newId);
+          this.dims.moveRow(id, newId);
+          const key = ThumbCache.key(relUri(this.root, newId), e.size, e.mtime, this.opts.resolution);
+          try {
+            if (e.hasThumb && (await this.cache.move(e.thumb, key))) this.thumbKeys.add(key);
+          } catch (err) {
+            this.log.warn(`Cannot move thumbnail of ${id}: ${describeError(err)}`);
+          }
+          moved++;
+        } catch (err) {
+          errors.push({ id, error: describeError(err) });
+        }
+      }
+      await this.refreshImages(touched);
+      return { moved, errors };
+    });
+  }
+
   removeIds(ids: readonly string[]): void {
     const removed = ids.filter((id) => this.remove(id));
     if (removed.length) this.sink.delta([], removed);
@@ -183,9 +252,12 @@ export class Dataset {
     if (this.upsertTimer) clearTimeout(this.upsertTimer);
   }
 
-  private serialize(fn: () => Promise<void>): Promise<void> {
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(fn);
-    this.chain = run.catch(() => undefined);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
 

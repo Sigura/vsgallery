@@ -46,6 +46,20 @@ export class ThumbCache {
     return keys;
   }
 
+  /** Re-keys a cached thumbnail; returns false when there was none. */
+  async move(from: string, to: string): Promise<boolean> {
+    if (!ThumbCache.isKey(from) || !ThumbCache.isKey(to)) throw new Error(`Invalid thumbnail key: ${from} -> ${to}`);
+    try {
+      await this.fs.retry(`move thumbnail ${from}`, () =>
+        vscode.workspace.fs.rename(vscode.Uri.joinPath(this.dir, `${from}.webp`), vscode.Uri.joinPath(this.dir, `${to}.webp`), { overwrite: true }),
+      );
+      return true;
+    } catch (e) {
+      if (isNotFound(e)) return false;
+      throw e;
+    }
+  }
+
   async write(key: string, data: Uint8Array): Promise<void> {
     if (!ThumbCache.isKey(key)) throw new Error(`Invalid thumbnail key: ${key}`);
     const target = vscode.Uri.joinPath(this.dir, `${key}.webp`);

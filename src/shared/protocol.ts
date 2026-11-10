@@ -128,6 +128,12 @@ export type WebviewToHost =
   | { type: 'metrics'; items: { id: string; key: string; metrics: ImageMetrics }[] }
   /** Runs a tag operation on the caption files on disk; with `dryRun` nothing is written. */
   | { type: 'tagOp'; requestId: number; ids: string[]; op: TagOp; dryRun: boolean }
+  /** Renames dataset subfolders (relative posix paths), one after another. */
+  | { type: 'renameFolders'; requestId: number; renames: { from: string; to: string }[] }
+  /** Moves images with their caption files into dataset folder `dir` ('' = root). */
+  | { type: 'moveImages'; ids: string[]; dir: string }
+  /** Selects the image in the VS Code Explorer (Sync). */
+  | { type: 'revealInExplorer'; id: string }
   | { type: 'error'; message: string };
 
 /** Batch resize target: in place (with .bak per loraDataset.editorBackup) or a folder mirroring the dataset. */

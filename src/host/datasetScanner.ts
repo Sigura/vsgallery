@@ -202,6 +202,25 @@ export class DimsIndex {
     this.scheduleSave();
   }
 
+  moveRow(from: string, to: string): void {
+    const row = this.rows[from];
+    if (!row) return;
+    this.rows[to] = row;
+    delete this.rows[from];
+    this.scheduleSave();
+  }
+
+  /** Moves the rows of everything below folder `from` to folder `to`. */
+  renameFolder(from: string, to: string): void {
+    const prefix = `${from}/`;
+    for (const id of Object.keys(this.rows)) {
+      if (!id.startsWith(prefix)) continue;
+      this.rows[`${to}/${id.slice(prefix.length)}`] = this.rows[id];
+      delete this.rows[id];
+    }
+    this.scheduleSave();
+  }
+
   retain(ids: ReadonlySet<string>): void {
     for (const id of Object.keys(this.rows)) if (!ids.has(id)) delete this.rows[id];
   }

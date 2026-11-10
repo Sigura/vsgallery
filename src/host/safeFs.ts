@@ -83,6 +83,11 @@ export class SafeFs {
     }
   }
 
+  /** Fails with FileExists when `to` exists. */
+  rename(from: vscode.Uri, to: vscode.Uri): Promise<void> {
+    return this.retry(`rename ${from.fsPath}`, () => vscode.workspace.fs.rename(from, to, { overwrite: false }));
+  }
+
   /** Returns false when the target was already gone. */
   async deleteIfExists(uri: vscode.Uri, options: { recursive?: boolean; useTrash?: boolean }): Promise<boolean> {
     try {
