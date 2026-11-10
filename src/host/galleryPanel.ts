@@ -39,7 +39,7 @@ function config() {
     jpegQuality: c.get<number>('jpegQuality', 0.95),
     undoMemoryMB: c.get<number>('undoMemoryMB', 512),
     snapMultiple: c.get<number>('snapMultiple', 8),
-    editorBackup: c.get<boolean>('editorBackup', true),
+    editorBackup: c.get<boolean>('editorBackup', false),
     tagger: taggerConfig(c),
     quality: {
       minResolution: c.get<number>('minResolution', 512),
@@ -497,7 +497,7 @@ export class GalleryPanel {
     const fs = this.svc.fs;
     try {
       if (output.kind === 'overwrite') {
-        if (vscode.workspace.getConfiguration('loraDataset').get<boolean>('editorBackup', true)) {
+        if (vscode.workspace.getConfiguration('loraDataset').get<boolean>('editorBackup', false)) {
           await fs.copyIfAbsent(relUri(this.folder, id), relUri(this.folder, `${id}.bak`));
         }
         await fs.writeFileAtomic(relUri(this.folder, id), bytes);
@@ -536,7 +536,7 @@ export class GalleryPanel {
     const fs = this.svc.fs;
     try {
       if (mode === 'overwrite') {
-        if (vscode.workspace.getConfiguration('loraDataset').get<boolean>('editorBackup', true)) {
+        if (vscode.workspace.getConfiguration('loraDataset').get<boolean>('editorBackup', false)) {
           await fs.copyIfAbsent(relUri(this.folder, id), relUri(this.folder, `${id}.bak`));
         }
         await fs.writeFileAtomic(relUri(this.folder, id), bytes);

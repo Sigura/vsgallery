@@ -208,7 +208,7 @@
         },
         "loraDataset.editorBackup": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Before overwriting an edited image the first time, keep the original as <name>.<ext>.bak next to it."
         },
         "loraDataset.jpegQuality": {

@@ -161,7 +161,7 @@ export class ResizeDialog {
         ? 'Subfolders are mirrored; existing files there are replaced.'
         : this.host.editorBackup()
           ? 'The first overwrite of each image keeps the original as <name>.bak.'
-          : 'loraDataset.editorBackup is off: originals are lost.';
+          : 'Originals are replaced; no backup is kept (loraDataset.editorBackup).';
 
     const buckets = bucketsFor(s.bucketBase);
     this.plans = new Map();

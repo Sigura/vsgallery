@@ -430,7 +430,7 @@ const resizeDialog = new ResizeDialog(
     entry: (id) => entries.get(id),
     previewUrl: (e) => loader?.objectUrl(e.thumb) ?? (e.hasThumb ? thumbUrl(e) : undefined),
     folderPath: () => folderPath,
-    editorBackup: () => settings?.editorBackup ?? true,
+    editorBackup: () => settings.editorBackup,
     saveState: (s) => {
       ui.resize = s;
       saveStateSoon();
