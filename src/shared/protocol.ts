@@ -98,6 +98,9 @@ export type HostToWebview =
   | { type: 'resizeWritten'; requestId: number; id: string; error?: string }
   /** Open the auto-caption dialog (command palette). */
   | { type: 'autoCaption' }
+  | { type: 'foldersRenamed'; requestId: number; results: { from: string; to: string; error?: string }[] }
+  /** Host-side diagnostics for the debug overlay (loraDataset.debug). */
+  | { type: 'debug'; lines: string[]; error?: boolean }
   | { type: 'captionApplied'; requestId: number; id: string; text?: string; skipped?: boolean; error?: string }
   /** Changes of a tag operation: planned (dry run) or written. */
   | { type: 'tagOpResult'; requestId: number; applied: boolean; changes: TagOpChange[]; errors: { id: string; error: string }[] };

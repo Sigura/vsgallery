@@ -275,9 +275,38 @@ button:disabled {
   background: color-mix(in srgb, var(--vscode-focusBorder) 15%, transparent);
 }
 
-.tile.selected .thumb {
+/* Drawn inside the tile: tiles use paint containment, which clips anything outside their box. */
+.tile.selected {
   outline: 2px solid var(--vscode-focusBorder);
-  outline-offset: 1px;
+  outline-offset: -2px;
+}
+
+.tile-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.tile:hover .tile-check,
+#scroller.has-selection .tile-check {
+  opacity: 1;
+}
+
+.tile.selected .tile-check {
+  border-color: var(--vscode-button-background);
+  background: var(--vscode-button-background)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 14px no-repeat;
 }
 
 .tile.selected {
@@ -296,7 +325,7 @@ button:disabled {
   position: absolute;
   top: 4px;
   left: 4px;
-  right: 4px;
+  right: 26px;
   display: flex;
   flex-wrap: wrap;
   gap: 3px;

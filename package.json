@@ -85,6 +85,11 @@
     "configuration": {
       "title": "LoRA Dataset Studio",
       "properties": {
+        "loraDataset.debug": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a debug log overlay in the gallery (takes effect when the gallery is reopened)."
+        },
         "loraDataset.concurrency": {
           "type": "integer",
           "default": 3,

@@ -17,6 +17,8 @@ import { ResizeDialog, type ResizeUiState } from '../resize/resizeDialog';
 import { ResizeBatch, type ResizeProgress } from '../resize/resizeBatch';
 import { DatasetTools } from './datasetTools';
 import { HelpOverlay } from './helpOverlay';
+import { DebugPanel } from './debugPanel';
+import { applyIcons } from '../icons';
 import { matchesQuality, qualityBadges, qualityFilterOptions, type QualityFilter } from './qualityUi';
 
 type SearchScope = 'any' | 'name' | 'caption' | 'tag';
@@ -52,6 +54,18 @@ const vscode = acquireVsCodeApi();
 const post = (m: WebviewToHost) => vscode.postMessage(m);
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+// Registered before anything else runs, so a crash while the page loads is reported too.
+const debug = document.body.dataset.debug === '1' ? new DebugPanel(debugState) : undefined;
+window.addEventListener('error', (ev) => {
+  debug?.error(`Uncaught: ${ev.message} at ${ev.filename}:${ev.lineno}:${ev.colno}${ev.error instanceof Error && ev.error.stack ? `\n${ev.error.stack}` : ''}`);
+  post({ type: 'error', message: `Uncaught: ${ev.message}` });
+});
+window.addEventListener('unhandledrejection', (ev) => {
+  const r: unknown = ev.reason;
+  debug?.error(`Unhandled rejection: ${r instanceof Error ? (r.stack ?? r.message) : String(r)}`);
+  post({ type: 'error', message: `Unhandled rejection: ${r}` });
+});
+
 const ui: UiState = {
   sort: 'name',
   dir: 'asc',
@@ -74,8 +88,10 @@ let scanError: string | undefined;
 let grid: VirtualGrid | undefined;
 let loader: ThumbLoader | undefined;
 let highlighted: string | undefined;
-let settings: GallerySettings | undefined;
+// Embedded in the page: the detail view and editor read settings while the script loads, before 'init'.
+let settings: GallerySettings = JSON.parse(document.body.dataset.settings!) as GallerySettings;
 
+applyIcons(document.body);
 const scroller = $<HTMLElement>('scroller');
 const modeSel = $<HTMLSelectElement>('mode');
 const sortSel = $<HTMLSelectElement>('sort');
@@ -118,6 +134,11 @@ const selection = new SelectionController(
   () => selectionChanged(),
   () => deleteSelected(),
   (id) => openDetail(id),
+  {
+    start: (ids, x, y) => moveDrag.start(ids, x, y),
+    move: (x, y) => moveDrag.move(x, y),
+    end: (x, y, drop) => moveDrag.end(x, y, drop),
+  },
 );
 
 const detail = new DetailView($('detail'), {
@@ -264,6 +285,7 @@ function rebuild(anchor?: Anchor): void {
   const groups = buildGroups();
   grid.setData(groups, anchor ?? grid.anchor());
   const shown = groups.reduce((n, g) => n + g.entries.length, 0);
+  debug?.log(`rebuild: ${shown} shown of ${entries.size}, ${groups.length} group(s), ${grid.debugInfo()}`);
   $('count').textContent = shown === entries.size ? `${shown} images` : `${shown} of ${entries.size} images`;
   // Selection only covers what is visible, so actions never touch filtered-out images.
   selection.prune((id) => grid!.indexOf(id) !== undefined);
@@ -307,7 +329,11 @@ function selectionChanged(): void {
   grid?.refreshLive();
   const n = selection.selected.size;
   $('selInfo').textContent = n ? `${n} selected` : '';
+  $('clearSel').hidden = n === 0;
   deleteBtn.disabled = n === 0;
+  $('deleteCount').textContent = n ? ` ${n}` : '';
+  // With a selection, every tile shows its checkbox so more can be ticked without Ctrl.
+  scroller.classList.toggle('has-selection', n > 0);
   post({ type: 'selection', ids: [...selection.selected] });
 }
 
@@ -455,7 +481,8 @@ function createTile(): HTMLElement {
   el.setAttribute('role', 'gridcell');
   el.dataset.vscodeContext = JSON.stringify({ webviewSection: 'tile' });
   el.innerHTML =
-    '<div class="thumb"><img draggable="false" alt=""><span class="placeholder"></span><div class="badges"></div></div>' +
+    '<div class="thumb"><img draggable="false" alt=""><span class="placeholder"></span><div class="badges"></div>' +
+    '<span class="tile-check" title="Select (Ctrl+click)"></span></div>' +
     '<div class="meta"><div class="name"></div><div class="sub"><span class="res"></span><span class="tag"></span></div></div>';
   const img = el.querySelector('img')!;
   img.addEventListener('load', () => el.classList.add('loaded'));
@@ -521,6 +548,7 @@ function createHeader(): HTMLElement {
 }
 
 function bindHeader(el: HTMLElement, g: Group): void {
+  el.dataset.dir = g.title ?? '';
   el.querySelector('.label')!.textContent = g.title ? folderTag(g.title) : '(root)';
   el.querySelector('.path')!.textContent = g.title && g.title !== folderTag(g.title) ? g.title : '';
   el.querySelector('.n')!.textContent = `${g.entries.length}`;
@@ -561,6 +589,7 @@ function applySettings(s: GallerySettings): void {
 }
 
 async function init(m: Extract<HostToWebview, { type: 'init' }>): Promise<void> {
+  debug?.log(`init: ${m.entries.length} entries, scanning=${m.scanning}${m.error ? `, error=${m.error}` : ''}, reveal=${m.reveal ?? '-'}`);
   ui.folderUri = m.folderUri;
   folderPath = m.folderPath;
   imageBase = m.imageBase;
@@ -580,6 +609,7 @@ async function init(m: Extract<HostToWebview, { type: 'init' }>): Promise<void> 
       updateStatus();
     },
   );
+  debug?.log('init: thumbnail loader ready');
   tools.start(document.body.dataset.analysisWorker!).catch((e: unknown) => post({ type: 'error', message: `Image analysis unavailable: ${e}` }));
   const size = ui.tileSize ?? m.settings.thumbnailSize;
   sizeInput.value = String(size);
@@ -593,19 +623,49 @@ async function init(m: Extract<HostToWebview, { type: 'init' }>): Promise<void> 
 }
 
 let initialized = false;
+/** Messages that arrive while init is still running; they are newer than its snapshot. */
+let queued: Exclude<HostToWebview, { type: 'init' }>[] | undefined;
 
 window.addEventListener('message', (ev: MessageEvent<HostToWebview>) => {
   const m = ev.data;
+  if (m.type === 'debug') {
+    for (const line of m.lines) debug?.log(line, 'host');
+    if (m.error) debug?.show(true);
+    return;
+  }
+  if (debug && m.type !== 'thumbSaved') {
+    const fate = m.type === 'init' ? '' : queued ? ' (queued, init running)' : initialized ? '' : ' (dropped, before init)';
+    debug.log(`message ${describeMessage(m)}${fate}`);
+  }
   if (tagger.onHostMessage(m) || tools.onHostMessage(m)) return;
   if (m.type === 'init') {
+    initialized = false;
+    queued = [];
     init(m).then(
-      () => (initialized = true),
-      (e) => post({ type: 'error', message: `init failed: ${e}` }),
+      () => {
+        debug?.log(`init done, replaying ${queued?.length ?? 0} queued message(s)`);
+        initialized = true;
+        const pending = queued ?? [];
+        queued = undefined;
+        for (const q of pending) onHostMessage(q);
+      },
+      (e) => {
+        debug?.error(`init FAILED: ${e instanceof Error ? (e.stack ?? e.message) : e}`);
+        post({ type: 'error', message: `init failed: ${e}` });
+      },
     );
+    return;
+  }
+  if (queued) {
+    queued.push(m);
     return;
   }
   // Anything before init is already contained in the init snapshot.
   if (!initialized) return;
+  onHostMessage(m);
+});
+
+function onHostMessage(m: Exclude<HostToWebview, { type: 'init' }>): void {
   switch (m.type) {
     case 'delta':
       for (const id of m.removed) entries.delete(id);
@@ -681,7 +741,7 @@ window.addEventListener('message', (ev: MessageEvent<HostToWebview>) => {
       if (batch instanceof ResizeBatch) batch.onHostMessage(m);
       return;
   }
-});
+}
 
 function syncControls(): void {
   modeSel.value = ui.mode;
@@ -742,6 +802,7 @@ for (const [k, el] of Object.entries(checks)) {
   });
 }
 deleteBtn.addEventListener('click', deleteSelected);
+$('clearSel').addEventListener('click', () => selection.clear());
 autoCaptionBtn.addEventListener('click', openAutoCaption);
 resizeBtn.addEventListener('click', () => void openResize());
 tagCancelBtn.addEventListener('click', () => {
@@ -766,8 +827,95 @@ scroller.addEventListener(
   { passive: false },
 );
 
-window.addEventListener('error', (ev) => post({ type: 'error', message: `Uncaught: ${ev.message}` }));
-window.addEventListener('unhandledrejection', (ev) => post({ type: 'error', message: `Unhandled rejection: ${ev.reason}` }));
 
 syncControls();
 post({ type: 'ready' });
+
+function describeMessage(m: HostToWebview): string {
+  switch (m.type) {
+    case 'init':
+      return `init (${m.entries.length} entries)`;
+    case 'delta':
+      return `delta +${m.upserts.length} -${m.removed.length}`;
+    case 'patch':
+      return `patch ${m.patches.length}`;
+    case 'status':
+      return `status scanning=${m.scanning}${m.error ? ` error=${m.error}` : ''}`;
+    default:
+      return m.type;
+  }
+}
+
+function debugState(): string {
+  const filtered = filtersActive() ? ` filters=on search="${ui.search}" scope=${ui.scope} missing=${ui.fMissing} not8=${ui.fNot8} small=${ui.fSmall} quality=${ui.fQuality || '-'}` : ' filters=off';
+  return [
+    `initialized=${initialized} queued=${queued?.length ?? '-'} scanning=${scanning} error=${scanError ?? '-'}`,
+    `entries=${entries.size} rootEntries=${[...entries.values()].filter((e) => e.dir === '').length} mode=${ui.mode} sort=${ui.sort}/${ui.dir}${filtered}`,
+    `grid: ${grid?.debugInfo() ?? 'not created'}`,
+    `thumbs: loader=${loader ? `busy=${loader.busy} failed=${loader.failedCount}` : 'not created'} detail=${ui.detailId ?? '-'}`,
+    `window=${innerWidth}x${innerHeight} visible=${document.visibilityState} imageBase=${imageBase || '-'}`,
+  ].join('\n');
+}
+
+/**
+ * Drag of selected tiles: shows the dataset's folders as drop targets (group headers in grouped
+ * view work too) and asks the host to move the images with their captions into the chosen one.
+ */
+const moveDrag = (() => {
+  const bar = document.createElement('div');
+  bar.className = 'move-bar';
+  bar.hidden = true;
+  const ghost = document.createElement('div');
+  ghost.className = 'move-ghost';
+  ghost.hidden = true;
+  document.body.append(bar, ghost);
+  let ids: string[] = [];
+  let target: HTMLElement | undefined;
+
+  const targetAt = (x: number, y: number) =>
+    document.elementFromPoint(x, y)?.closest<HTMLElement>('.move-chip, .group-header') ?? undefined;
+
+  const setTarget = (t: HTMLElement | undefined) => {
+    if (t === target) return;
+    target?.classList.remove('drop-target');
+    target = t;
+    target?.classList.add('drop-target');
+  };
+
+  return {
+    start(selected: string[], x: number, y: number): void {
+      ids = selected;
+      const dirs = [...new Set([...entries.values()].map((e) => e.dir))].sort((a, b) =>
+        a === '' ? -1 : b === '' ? 1 : naturalCompare(a, b),
+      );
+      bar.replaceChildren(
+        Object.assign(document.createElement('span'), { className: 'move-title', textContent: 'Move to:' }),
+        ...dirs.map((d) => {
+          const chip = document.createElement('span');
+          chip.className = 'move-chip';
+          chip.dataset.dir = d;
+          chip.textContent = d || '(root)';
+          return chip;
+        }),
+      );
+      const r = scroller.getBoundingClientRect();
+      bar.style.top = `${r.top}px`;
+      bar.hidden = false;
+      ghost.textContent = `Move ${ids.length} image(s)`;
+      ghost.hidden = false;
+      this.move(x, y);
+    },
+    move(x: number, y: number): void {
+      ghost.style.transform = `translate(${x + 14}px, ${y + 14}px)`;
+      setTarget(targetAt(x, y));
+    },
+    end(x: number, y: number, drop: boolean): void {
+      const t = drop ? targetAt(x, y) : undefined;
+      setTarget(undefined);
+      bar.hidden = true;
+      ghost.hidden = true;
+      if (t?.dataset.dir !== undefined && ids.length) post({ type: 'moveImages', ids, dir: t.dataset.dir });
+      ids = [];
+    },
+  };
+})();

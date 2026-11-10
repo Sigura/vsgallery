@@ -4,6 +4,7 @@ const SECTIONS: [title: string, rows: [keys: string, what: string][]][] = [
     [
       ['Click · Ctrl+click · Shift+click', 'Select · toggle · select range'],
       ['Drag on empty space', 'Rubber-band selection'],
+      ['Drag an image', 'Move it (or the selection) with captions to a folder: drop on a folder header or the Move to bar'],
       ['Arrows · PgUp/PgDn · Home/End', 'Move focus (Shift extends the selection)'],
       ['Ctrl+A', 'Select all visible'],
       ['Ctrl+Space', 'Toggle the focused image'],

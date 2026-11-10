@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createHash, randomBytes } from 'node:crypto';
-import { DimsIndex, relUri, splitRel } from './datasetScanner';
+import { DimsIndex, isHiddenPath, relUri, splitRel } from './datasetScanner';
 import { Dataset, type DatasetOptions } from './dataset';
 import { ThumbCache } from './thumbCache';
 import { runTagOp } from './tagBatch';
@@ -21,6 +21,10 @@ export interface Services {
 
 const WATCH_DEBOUNCE_MS = 300;
 const WATCH_MAX_DELAY_MS = 2000;
+
+function escapeAttr(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 function config() {
   const c = vscode.workspace.getConfiguration('loraDataset');
@@ -50,7 +54,7 @@ function config() {
     concurrency: settings.concurrency,
     captionExts: c.get<string[]>('captionExtensions', ['.txt', '.caption']),
   };
-  return { settings, dataset, pollSeconds: c.get<number>('pollIntervalSeconds', 0) };
+  return { settings, dataset, pollSeconds: c.get<number>('pollIntervalSeconds', 0), debug: c.get<boolean>('debug', true) };
 }
 
 function taggerConfig(c: vscode.WorkspaceConfiguration): TaggerSettings {
@@ -76,7 +80,12 @@ export class GalleryPanel {
   private readonly dataset: Dataset;
   private readonly dims: DimsIndex;
   private settings: GallerySettings;
-  private readonly firstScan: Promise<void>;
+  /** Resolves once the first scan has started; the webview then gets a snapshot and streamed deltas. */
+  private readonly scanStarted: Promise<void>;
+  private readonly debug: boolean;
+  /** Debug lines from before the webview was ready; sent with the first 'ready'. */
+  private debugBacklog: string[] | undefined = [];
+  private backlogError = false;
   private scanning = false;
   private scanError: string | undefined;
   private selection: string[] = [];
@@ -100,7 +109,7 @@ export class GalleryPanel {
       vscode.ViewColumn.Active,
       GalleryPanel.webviewOptions(svc, folder),
     );
-    new GalleryPanel(svc, panel, folder, reveal);
+    new GalleryPanel(svc, panel, folder, reveal ? 'open image' : 'open folder', reveal);
   }
 
   /** Opens an image in the detail view of a gallery that already contains it, else of its parent folder. */
@@ -127,7 +136,7 @@ export class GalleryPanel {
       return;
     }
     panel.webview.options = GalleryPanel.webviewOptions(svc, folder);
-    new GalleryPanel(svc, panel, folder);
+    new GalleryPanel(svc, panel, folder, 'restored');
   }
 
   static refreshAll(): void {
@@ -163,6 +172,7 @@ export class GalleryPanel {
     private readonly svc: Services,
     private readonly panel: vscode.WebviewPanel,
     private readonly folder: vscode.Uri,
+    origin: string,
     reveal?: { id: string; open: boolean },
   ) {
     GalleryPanel.panels.set(folder.toString(), this);
@@ -170,23 +180,32 @@ export class GalleryPanel {
     this.pendingReveal = reveal;
     const cfg = config();
     this.settings = cfg.settings;
+    this.debug = cfg.debug;
+    this.dbg(`panel for ${folder.toString()} (${origin})`);
     const indexName = createHash('sha1').update(folder.toString()).digest('hex');
     this.dims = new DimsIndex(vscode.Uri.joinPath(svc.context.globalStorageUri, 'dims', `${indexName}.json`), svc.fs, svc.log);
     this.dataset = new Dataset(folder, svc.fs, svc.cache, this.dims, svc.log, {
-      delta: (upserts, removed) => this.post({ type: 'delta', upserts, removed }),
+      delta: (upserts, removed) => {
+        this.dbg(`delta +${upserts.length} -${removed.length} (dataset now ${this.dataset.entries.size})`);
+        this.post({ type: 'delta', upserts, removed });
+      },
       patch: (patches) => this.post({ type: 'patch', patches }),
       skipped: (items) => this.reportSkipped(items),
     }, cfg.dataset);
 
     panel.iconPath = new vscode.ThemeIcon('file-media');
     panel.webview.html = this.html();
+    if (this.debug) this.watchLoad();
     this.disposables.push(
       panel.onDidDispose(() => this.dispose()),
       panel.onDidChangeViewState((e) => {
         if (e.webviewPanel.active) GalleryPanel.active = this;
       }),
       panel.webview.onDidReceiveMessage((m: WebviewToHost) =>
-        this.onMessage(m).catch((e: unknown) => svc.log.error(`Handling '${m.type}' failed: ${describeError(e)}`)),
+        this.onMessage(m).catch((e: unknown) => {
+          svc.log.error(`Handling '${m.type}' failed: ${describeError(e)}`);
+          this.dbg(`Handling '${m.type}' failed: ${e instanceof Error ? (e.stack ?? e.message) : describeError(e)}`, true);
+        }),
       ),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('loraDataset')) this.onSettingsChanged();
@@ -194,17 +213,71 @@ export class GalleryPanel {
     );
     this.startWatching();
     this.setPolling(cfg.pollSeconds);
-    this.firstScan = this.dims.load().then(() => this.rescan());
+    this.scanStarted = this.dims.load().then(() => {
+      this.dbg('dimensions index loaded');
+      void this.rescan();
+    });
   }
 
   private post(msg: HostToWebview): void {
-    void this.panel.webview.postMessage(msg);
+    this.panel.webview.postMessage(msg).then(
+      (ok) => {
+        if (!ok && msg.type !== 'debug') this.dbg(`postMessage '${msg.type}' not delivered`);
+      },
+      (e: unknown) => this.svc.log.error(`postMessage '${msg.type}' failed: ${describeError(e)}`),
+    );
+  }
+
+  /**
+   * The page reports 'ready' as its first action; when that never arrives the webview itself failed
+   * to load (blank panel, no toolbar), which nothing inside the page can report.
+   */
+  private watchLoad(): void {
+    const timer = setTimeout(() => {
+      if (!this.debugBacklog) return;
+      // A tab in the background may not load its page until it is shown.
+      if (!this.panel.visible) {
+        this.watchLoad();
+        return;
+      }
+      const what = `Gallery page for ${this.folder.fsPath} did not load within 10 s (active=${this.panel.active}).`;
+      this.svc.log.warn(`${what} Debug lines so far:\n${this.debugBacklog.join('\n')}`);
+      void vscode.window.showWarningMessage(`LoRA Dataset: ${what}`, 'Reload Page', 'Show Log').then((choice) => {
+        if (choice === 'Reload Page') {
+          this.dbg('page reloaded by user');
+          this.panel.webview.html = this.html();
+          this.watchLoad();
+        } else if (choice === 'Show Log') {
+          this.svc.log.show();
+        }
+      });
+    }, 10_000);
+    this.disposables.push({ dispose: () => clearTimeout(timer) });
+  }
+
+  /** `error`: also expands the debug panel in the page. */
+  private dbg(line: string, error = false): void {
+    if (!this.debug) return;
+    this.svc.log.debug(line);
+    if (this.debugBacklog) {
+      this.debugBacklog.push(line);
+      if (this.debugBacklog.length > 300) this.debugBacklog.shift();
+      this.backlogError ||= error;
+    } else {
+      this.post({ type: 'debug', lines: [line], error });
+    }
   }
 
   private async onMessage(m: WebviewToHost): Promise<void> {
     switch (m.type) {
       case 'ready':
-        await this.firstScan;
+        if (this.debugBacklog) {
+          this.post({ type: 'debug', lines: this.debugBacklog, error: this.backlogError });
+          this.debugBacklog = undefined;
+        }
+        this.dbg('webview ready');
+        await this.scanStarted;
+        this.dbg(`sending init with ${this.dataset.entries.size} entries, scanning=${this.scanning}`);
         this.post({
           type: 'init',
           folderName: this.folder.path.slice(this.folder.path.lastIndexOf('/') + 1),
@@ -257,6 +330,15 @@ export class GalleryPanel {
         this.post({ type: 'tagOpResult', requestId: m.requestId, applied: !m.dryRun, ...r });
         return;
       }
+      case 'moveImages':
+        await this.moveImages(m.ids, m.dir);
+        return;
+      case 'revealInExplorer':
+        await this.revealInExplorer(m.id);
+        return;
+      case 'renameFolders':
+        await this.renameFolders(m.requestId, m.renames);
+        return;
       case 'error':
         this.svc.log.error(`[webview] ${m.message}`);
         return;
@@ -267,10 +349,14 @@ export class GalleryPanel {
   private async rescan(): Promise<void> {
     this.scanning = true;
     this.post({ type: 'status', scanning: true });
+    const t0 = Date.now();
+    this.dbg('scan started');
     try {
       await this.dataset.scan();
       this.scanError = undefined;
+      this.dbg(`scan finished in ${Date.now() - t0} ms: ${this.dataset.entries.size} images`);
     } catch (e) {
+      this.dbg(`scan FAILED after ${Date.now() - t0} ms: ${describeError(e)}`, true);
       this.scanError = `Scan failed: ${describeError(e)}`;
       this.svc.log.error(`Scan of ${this.folder.fsPath} failed: ${describeError(e)}`);
       void vscode.window.showErrorMessage(`LoRA Dataset: failed to scan ${this.folder.fsPath}: ${describeError(e)}`);
@@ -483,6 +569,46 @@ export class GalleryPanel {
     }
   }
 
+  private async moveImages(ids: string[], dir: string): Promise<void> {
+    if (isHiddenPath(dir) || dir.split('/').includes('..')) throw new Error(`invalid folder: ${dir}`);
+    const { moved, errors } = await this.dataset.moveImages(ids, dir);
+    const where = dir || 'the dataset root';
+    this.dbg(`moved ${moved} image(s) to ${where}, ${errors.length} failed`);
+    if (moved) vscode.window.setStatusBarMessage(`Moved ${moved} image(s) to ${where}`, 4000);
+    else if (!errors.length) vscode.window.setStatusBarMessage(`The image(s) are already in ${where}`, 4000);
+    if (errors.length) {
+      for (const e of errors) this.svc.log.error(`Moving ${e.id} to ${where} failed: ${e.error}`);
+      const shown = errors.slice(0, 5).map((e) => `${e.id}: ${e.error}`).join('\n');
+      void vscode.window.showErrorMessage(`LoRA Dataset: ${errors.length} image(s) could not be moved to ${where}.`, {
+        modal: true,
+        detail: `${shown}${errors.length > 5 ? `\n… and ${errors.length - 5} more (see the log)` : ''}`,
+      });
+    }
+  }
+
+  /** The Explorer takes focus when it reveals; it is handed back so keyboard navigation keeps working. */
+  private async revealInExplorer(id: string): Promise<void> {
+    if (!this.dataset.entries.has(id)) return;
+    await vscode.commands.executeCommand('revealInExplorer', relUri(this.folder, id));
+    this.panel.reveal(this.panel.viewColumn, false);
+  }
+
+  private async renameFolders(requestId: number, renames: { from: string; to: string }[]): Promise<void> {
+    const results: { from: string; to: string; error?: string }[] = [];
+    for (const { from, to } of renames) {
+      try {
+        if (!from || !to || isHiddenPath(to) || to.split('/').includes('..')) throw new Error('invalid folder name');
+        await this.dataset.renameFolder(from, to);
+        this.dbg(`renamed ${from} -> ${to}`);
+        results.push({ from, to });
+      } catch (e) {
+        this.svc.log.error(`Renaming ${from} to ${to} failed: ${describeError(e)}`);
+        results.push({ from, to, error: describeError(e) });
+      }
+    }
+    this.post({ type: 'foldersRenamed', requestId, results });
+  }
+
   /** Permanently deletes images and their caption files. A caption is only deleted after its image was. */
   private async deleteImages(ids: readonly string[]): Promise<void> {
     const targets = ids.filter((id) => this.dataset.entries.has(id));
@@ -539,6 +665,7 @@ export class GalleryPanel {
   }
 
   private reportSkipped(skipped: { path: string; reason: string }[]): void {
+    this.dbg(`skipped ${skipped.length}: ${skipped.slice(0, 5).map((s) => `${s.path} (${s.reason})`).join('; ')}`);
     for (const s of skipped) this.svc.log.warn(`Skipped ${s.path}: ${s.reason}`);
     void vscode.window
       .showWarningMessage(`LoRA Dataset: ${skipped.length} file(s)/folder(s) could not be read.`, 'Show Log')
@@ -576,7 +703,7 @@ export class GalleryPanel {
 <link rel="stylesheet" href="${css}">
 <title>Dataset Gallery</title>
 </head>
-<body data-worker="${worker}" data-analysis-worker="${analysisWorker}" data-tag-worker="${tagWorker}" data-patch-worker="${patchWorker}" data-wasm-base="${webview.asWebviewUri(base)}/" data-vscode-context='{"preventDefaultContextMenuItems": true}'>
+<body data-settings="${escapeAttr(JSON.stringify(this.settings))}" data-debug="${this.debug ? '1' : ''}" data-worker="${worker}" data-analysis-worker="${analysisWorker}" data-tag-worker="${tagWorker}" data-patch-worker="${patchWorker}" data-wasm-base="${webview.asWebviewUri(base)}/" data-vscode-context='{"preventDefaultContextMenuItems": true}'>
 <header class="toolbar">
   <span class="title" id="title"></span>
   <span class="count" id="count"></span>
@@ -619,13 +746,15 @@ export class GalleryPanel {
   <select id="fQuality" aria-label="Quality filter" title="Show only images with this quality flag"></select>
   <span class="spacer"></span>
   <label title="Show caption text when hovering a tile"><input type="checkbox" id="hoverCaption"> Caption tooltip</label>
-  <button id="stats" title="Statistics of the selected or visible images: folders and repeats, sizes, buckets, captions, tags">Stats</button>
-  <button id="tagTools" title="Rename, merge, remove or add tags across the selected or visible images">Tags…</button>
-  <button id="dups" title="Find near-duplicate images by perceptual hash">Duplicates…</button>
-  <button id="review" title="Step through the selected or visible images: keep, delete, skip, edit caption">Review</button>
-  <button id="resize" title="Resize or crop the selected images, or all visible images when nothing is selected, to buckets or a size">Resize…</button>
-  <button id="autoCaption" title="Generate captions with the WD tagger for the selected images, or all visible images when nothing is selected">Auto-caption…</button>
-  <button id="delete" title="Delete selected images and their captions (Delete)" disabled>Delete</button>
+  <button id="repeats" data-icon="repeats" title="Kohya repeats: number the subfolders (N_name) so each contributes about the same samples per epoch">Repeats…</button>
+  <button id="stats" data-icon="stats" title="Statistics of the selected or visible images: folders and repeats, sizes, buckets, captions, tags">Stats</button>
+  <button id="tagTools" data-icon="tags" title="Rename, merge, remove or add tags across the selected or visible images">Tags…</button>
+  <button id="dups" data-icon="duplicates" title="Find near-duplicate images by perceptual hash">Duplicates…</button>
+  <button id="review" data-icon="review" title="Step through the selected or visible images: keep, delete, skip, edit caption">Review</button>
+  <button id="resize" data-icon="resize" title="Resize or crop the selected images, or all visible images when nothing is selected, to buckets or a size">Resize…</button>
+  <button id="autoCaption" data-icon="sparkle" title="Generate captions with the WD tagger for the selected images, or all visible images when nothing is selected">Auto-caption…</button>
+  <button id="clearSel" data-icon="selNone" title="Clear the selection (Esc)" hidden>Clear selection</button>
+  <button id="delete" data-icon="trash" title="Delete selected images and their captions (Delete)" disabled>Delete<span id="deleteCount"></span></button>
 </div>
 <main id="scroller" tabindex="0" role="grid" aria-multiselectable="true"><div id="spacer"></div><div id="band" hidden></div></main>
 <footer class="status"><span id="status"></span><span class="tag-progress"><span id="tagText"></span><button id="tagCancel" hidden>Cancel</button></span><span id="selInfo"></span></footer>

@@ -89,6 +89,11 @@ export class VirtualGrid {
     this.schedule();
   }
 
+  debugInfo(): string {
+    const s = this.scroller;
+    return `groups=${this.groups.length} items=${this.items.length} cols=${this.cols} rows=${this.rows.length} live=${this.live.size} scroller=${s.clientWidth}x${s.clientHeight} scrollTop=${Math.round(s.scrollTop)} spacer=${this.spacer.style.height}`;
+  }
+
   get order(): readonly ImageEntry[] {
     return this.items;
   }

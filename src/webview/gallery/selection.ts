@@ -17,6 +17,14 @@ const NAV_KEYS: Record<string, NavKey> = {
   End: 'end',
 };
 
+/** Dragging tiles (to move the files somewhere). */
+export interface MoveDragHooks {
+  start(ids: string[], clientX: number, clientY: number): void;
+  move(clientX: number, clientY: number): void;
+  /** `drop`: false when the drag was cancelled (Esc, lost pointer). */
+  end(clientX: number, clientY: number, drop: boolean): void;
+}
+
 interface Drag {
   pointerId: number;
   startX: number;
@@ -25,6 +33,11 @@ interface Drag {
   clientY: number;
   tileId: string | undefined;
   additive: boolean;
+  /** Started on a tile's checkbox: toggles that tile, never opens it. */
+  check: boolean;
+  /** Started on a tile: dragging moves the selection (or just that tile) instead of drawing a band. */
+  movable: boolean;
+  moving: boolean;
   base: Set<string>;
   banding: boolean;
   frame: number;
@@ -38,6 +51,11 @@ export class SelectionController {
   private drag: Drag | undefined;
   // Pointer capture retargets click/dblclick to the scroller, so double-clicks are detected here.
   private lastClick: { id: string; time: number } | undefined;
+  /**
+   * A multi-selection was started (checkbox, Ctrl/Shift+click, rubber band, Ctrl+A): plain clicks then
+   * add or remove tiles instead of replacing the selection. Ends when the selection becomes empty.
+   */
+  private multi = false;
 
   constructor(
     private readonly scroller: HTMLElement,
@@ -46,11 +64,12 @@ export class SelectionController {
     private readonly changed: () => void,
     private readonly onDelete: () => void,
     private readonly onOpen: (id: string) => void,
+    private readonly moveHooks: MoveDragHooks,
   ) {
     scroller.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     scroller.addEventListener('pointermove', (e) => this.onPointerMove(e));
     scroller.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    scroller.addEventListener('pointercancel', () => this.endDrag());
+    scroller.addEventListener('pointercancel', () => this.cancelDrag());
     scroller.addEventListener('keydown', (e) => this.onKeyDown(e));
     scroller.addEventListener('contextmenu', (e) => this.onContextMenu(e));
   }
@@ -77,6 +96,7 @@ export class SelectionController {
   selectAll(): void {
     const g = this.grid();
     if (!g) return;
+    this.multi = true;
     this.replace(g.order.map((e) => e.id));
   }
 
@@ -102,15 +122,18 @@ export class SelectionController {
   }
 
   private click(id: string | undefined, ctrl: boolean, shift: boolean): void {
+    if (this.selected.size === 0) this.multi = false;
     if (!id) {
-      if (!ctrl && !shift) this.clear();
+      // A stray click between tiles must not wipe a multi-selection; Esc or "Clear selection" does.
+      if (!ctrl && !shift && !this.multi) this.clear();
       return;
     }
+    if (ctrl || shift) this.multi = true;
     if (shift && this.anchor) {
       const ids = this.range(this.anchor, id);
       if (ctrl) for (const x of ids) this.selected.add(x);
       else this.replace(ids);
-    } else if (ctrl) {
+    } else if (ctrl || this.multi) {
       if (this.selected.has(id)) this.selected.delete(id);
       else this.selected.add(id);
       this.anchor = id;
@@ -134,7 +157,9 @@ export class SelectionController {
     this.scroller.focus({ preventScroll: true });
     const p = this.toContent(e.clientX, e.clientY);
     const tile = (e.target as HTMLElement).closest<HTMLElement>('.tile');
-    const additive = e.ctrlKey || e.metaKey;
+    const check = (e.target as HTMLElement).closest('.tile-check') !== null;
+    if (this.selected.size === 0) this.multi = false;
+    const additive = e.ctrlKey || e.metaKey || check || this.multi;
     this.drag = {
       pointerId: e.pointerId,
       startX: p.x,
@@ -143,6 +168,9 @@ export class SelectionController {
       clientY: e.clientY,
       tileId: tile?.dataset.id,
       additive,
+      check,
+      movable: !!tile?.dataset.id && !check && !e.ctrlKey && !e.metaKey && !e.shiftKey,
+      moving: false,
       base: additive ? new Set(this.selected) : new Set(),
       banding: false,
       frame: 0,
@@ -156,10 +184,23 @@ export class SelectionController {
     if (!d || d.pointerId !== e.pointerId) return;
     d.clientX = e.clientX;
     d.clientY = e.clientY;
+    if (d.moving) {
+      this.moveHooks.move(e.clientX, e.clientY);
+      return;
+    }
     if (!d.banding) {
       const p = this.toContent(e.clientX, e.clientY);
       if (Math.hypot(p.x - d.startX, p.y - d.startY) < DRAG_THRESHOLD) return;
+      if (d.movable && d.tileId) {
+        d.moving = true;
+        this.lastClick = undefined;
+        if (!this.selected.has(d.tileId)) this.selectOnly(d.tileId);
+        this.moveHooks.start([...this.selected], e.clientX, e.clientY);
+        d.frame = requestAnimationFrame(() => this.autoscroll());
+        return;
+      }
       d.banding = true;
+      this.multi = true;
       this.band.hidden = false;
       d.frame = requestAnimationFrame(() => this.autoscroll());
     }
@@ -170,10 +211,16 @@ export class SelectionController {
     const d = this.drag;
     if (!d || d.pointerId !== e.pointerId) return;
     this.endDrag();
+    if (d.moving) {
+      this.moveHooks.end(e.clientX, e.clientY, true);
+      return;
+    }
     if (d.banding) return;
-    const ctrl = e.ctrlKey || e.metaKey;
+    const ctrl = e.ctrlKey || e.metaKey || d.check;
     const now = performance.now();
-    const plain = !ctrl && !e.shiftKey;
+    if (this.selected.size === 0) this.multi = false;
+    // In a multi-selection every click toggles, so a double-click does not open the image (Enter does).
+    const plain = !ctrl && !e.shiftKey && !this.multi;
     if (plain && d.tileId && this.lastClick?.id === d.tileId && now - this.lastClick.time < DOUBLE_CLICK_MS) {
       this.lastClick = undefined;
       this.onOpen(d.tileId);
@@ -181,6 +228,12 @@ export class SelectionController {
     }
     this.lastClick = plain && d.tileId ? { id: d.tileId, time: now } : undefined;
     this.click(d.tileId, ctrl, e.shiftKey);
+  }
+
+  private cancelDrag(): void {
+    const d = this.drag;
+    this.endDrag();
+    if (d?.moving) this.moveHooks.end(d.clientX, d.clientY, false);
   }
 
   private endDrag(): void {
@@ -219,7 +272,8 @@ export class SelectionController {
     else if (d.clientY > r.bottom - AUTOSCROLL_EDGE) dy = Math.min(AUTOSCROLL_MAX, d.clientY - (r.bottom - AUTOSCROLL_EDGE));
     if (dy) {
       this.scroller.scrollTop += dy;
-      this.updateBand();
+      if (d.moving) this.moveHooks.move(d.clientX, d.clientY);
+      else this.updateBand();
     }
     d.frame = requestAnimationFrame(() => this.autoscroll());
   }
@@ -230,6 +284,10 @@ export class SelectionController {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    if (this.drag?.moving) {
+      if (e.key === 'Escape') this.cancelDrag();
+      return;
+    }
     const g = this.grid();
     if (!g) return;
     const ctrl = e.ctrlKey || e.metaKey;
