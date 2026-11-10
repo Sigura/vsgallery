@@ -74,7 +74,9 @@ function taggerConfig(c: vscode.WorkspaceConfiguration): TaggerSettings {
 
 export class GalleryPanel {
   static readonly viewType = 'loraDataset.gallery';
+  /** Gallery tabs by folder; galleries hosted in an image tab are not listed (they belong to that tab). */
   private static readonly panels = new Map<string, GalleryPanel>();
+  private static readonly instances = new Set<GalleryPanel>();
   private static active: GalleryPanel | undefined;
 
   private readonly dataset: Dataset;
@@ -139,8 +141,16 @@ export class GalleryPanel {
     new GalleryPanel(svc, panel, folder, 'restored');
   }
 
+  /** An image opened from the Explorer: its tab shows the gallery of its folder with the image open. */
+  static hostImage(svc: Services, panel: vscode.WebviewPanel, image: vscode.Uri): void {
+    const folder = vscode.Uri.joinPath(image, '..');
+    panel.webview.options = GalleryPanel.webviewOptions(svc, folder);
+    const name = image.path.slice(image.path.lastIndexOf('/') + 1);
+    new GalleryPanel(svc, panel, folder, 'image tab', { id: name, open: true }, false);
+  }
+
   static refreshAll(): void {
-    for (const p of GalleryPanel.panels.values()) void p.rescan();
+    for (const p of GalleryPanel.instances) void p.rescan();
   }
 
   static deleteSelectedInActive(): void {
@@ -174,8 +184,10 @@ export class GalleryPanel {
     private readonly folder: vscode.Uri,
     origin: string,
     reveal?: { id: string; open: boolean },
+    register = true,
   ) {
-    GalleryPanel.panels.set(folder.toString(), this);
+    if (register) GalleryPanel.panels.set(folder.toString(), this);
+    GalleryPanel.instances.add(this);
     GalleryPanel.active = this;
     this.pendingReveal = reveal;
     const cfg = config();
@@ -782,7 +794,8 @@ export class GalleryPanel {
   }
 
   private dispose(): void {
-    GalleryPanel.panels.delete(this.folder.toString());
+    if (GalleryPanel.panels.get(this.folder.toString()) === this) GalleryPanel.panels.delete(this.folder.toString());
+    GalleryPanel.instances.delete(this);
     if (GalleryPanel.active === this) GalleryPanel.active = undefined;
     clearTimeout(this.debounceTimer);
     clearInterval(this.pollTimer);

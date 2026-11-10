@@ -33,6 +33,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       GalleryPanel.refreshAll();
     }),
+    // An image opened from the Explorer shows in the gallery's detail view.
+    vscode.window.registerCustomEditorProvider('loraDataset.image', {
+      openCustomDocument: (uri) => ({ uri, dispose: () => undefined }),
+      // Closing this tab to hand over to a separate gallery tab makes VS Code fail with
+      // "OverlayWebview has been disposed", so the tab hosts the gallery itself.
+      resolveCustomEditor: (document, panel) => GalleryPanel.hostImage(svc, panel, document.uri),
+    }),
     vscode.window.registerWebviewPanelSerializer(GalleryPanel.viewType, {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: { folderUri?: string } | undefined) {
         if (!state?.folderUri) {

@@ -17,9 +17,20 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onWebviewPanel:loraDataset.gallery"
+    "onWebviewPanel:loraDataset.gallery",
+    "onCustomEditor:loraDataset.image"
   ],
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "loraDataset.image",
+        "displayName": "LoRA Dataset Editor",
+        "selector": [
+          { "filenamePattern": "*.{png,jpg,jpeg,webp,bmp,PNG,JPG,JPEG,WEBP,BMP}" }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "loraDataset.openGallery",
@@ -77,7 +88,7 @@
       "webview/context": [
         {
           "command": "loraDataset.deleteSelected",
-          "when": "webviewId == 'loraDataset.gallery' && webviewSection == 'tile'",
+          "when": "(webviewId == 'loraDataset.gallery' || webviewId == 'loraDataset.image') && webviewSection == 'tile'",
           "group": "9_delete"
         }
       ]
