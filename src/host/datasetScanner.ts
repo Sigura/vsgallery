@@ -21,10 +21,13 @@ export interface ScannedFile {
   mtime: number;
 }
 
-export interface ScanResult {
+export interface ScanBatch {
   files: ScannedFile[];
-  /** Caption files (by `captionExts`), same shape as images. */
+  /** Caption files (by `captionExts`) of the same folder, same shape as images. */
   captions: ScannedFile[];
+}
+
+export interface ScanResult {
   /** Relative paths (dirs or files) that could not be read even after retries. */
   skipped: { path: string; reason: string }[];
 }
@@ -43,20 +46,44 @@ export function splitRel(rel: string): { dir: string; name: string } {
 }
 
 /**
- * Recursive listing of images and caption files below `root/start`. Hidden and symlinked
- * directories are skipped. Failure to read the start folder throws; unreadable subfolders/files
- * are reported in `skipped`. Files deleted between listing and stat are left out (they no longer exist).
+ * Recursive listing of images and caption files below `root/start`, reported per folder through
+ * `onBatch` as soon as that folder's files are stat'ed. Hidden and symlinked directories are skipped.
+ * Failure to read the start folder throws; unreadable subfolders/files are reported in `skipped`.
+ * Files deleted between listing and stat are left out (they no longer exist).
  */
 export async function scanFolder(
   root: vscode.Uri,
   fs: SafeFs,
   captionExts: readonly string[],
+  onBatch: (batch: ScanBatch) => void,
   start = '',
 ): Promise<ScanResult> {
   const capExts = captionExts.map((e) => e.toLowerCase());
   const isCaption = (name: string) => capExts.some((e) => name.toLowerCase().endsWith(e) && name.length > e.length);
-  const found: { id: string; dir: string; name: string; uri: vscode.Uri; caption: boolean }[] = [];
   const skipped: ScanResult['skipped'] = [];
+  const statQueue = new TaskQueue(16);
+  const statDir = async (found: { id: string; dir: string; name: string; uri: vscode.Uri; caption: boolean }[]): Promise<void> => {
+    const stated = await Promise.all(
+      found.map((f) =>
+        statQueue.add(f.id, 0, async (): Promise<(ScannedFile & { caption: boolean }) | undefined> => {
+          try {
+            const st = await fs.stat(f.uri);
+            return { ...f, size: st.size, mtime: st.mtime };
+          } catch (e) {
+            if (!isNotFound(e)) skipped.push({ path: f.id, reason: describeError(e) });
+            return undefined;
+          }
+        }),
+      ),
+    );
+    const batch: ScanBatch = { files: [], captions: [] };
+    for (const f of stated) {
+      if (!f) continue;
+      const { caption, ...file } = f;
+      (caption ? batch.captions : batch.files).push(file);
+    }
+    if (batch.files.length || batch.captions.length) onBatch(batch);
+  };
   const walk = async (dirUri: vscode.Uri, rel: string): Promise<void> => {
     let items: [string, vscode.FileType][];
     try {
@@ -67,6 +94,7 @@ export async function scanFolder(
       return;
     }
     const subdirs: Promise<void>[] = [];
+    const found: Parameters<typeof statDir>[0] = [];
     for (const [name, type] of items) {
       if (type & vscode.FileType.Directory) {
         if (type & vscode.FileType.SymbolicLink || name.startsWith('.')) continue;
@@ -77,32 +105,10 @@ export async function scanFolder(
         found.push({ id: rel ? `${rel}/${name}` : name, dir: rel, name, uri: vscode.Uri.joinPath(dirUri, name), caption: !image });
       }
     }
-    await Promise.all(subdirs);
+    await Promise.all([statDir(found), ...subdirs]);
   };
   await walk(relUri(root, start), start);
-
-  const q = new TaskQueue(16);
-  const stated = await Promise.all(
-    found.map((f) =>
-      q.add(f.id, 0, async (): Promise<(ScannedFile & { caption: boolean }) | undefined> => {
-        try {
-          const st = await fs.stat(f.uri);
-          return { ...f, size: st.size, mtime: st.mtime };
-        } catch (e) {
-          if (!isNotFound(e)) skipped.push({ path: f.id, reason: describeError(e) });
-          return undefined;
-        }
-      }),
-    ),
-  );
-  const files: ScannedFile[] = [];
-  const captions: ScannedFile[] = [];
-  for (const f of stated) {
-    if (!f) continue;
-    const { caption, ...file } = f;
-    (caption ? captions : files).push(file);
-  }
-  return { files, captions, skipped };
+  return { skipped };
 }
 
 /**

@@ -275,7 +275,8 @@ function updateStatus(): void {
     statusFrame = 0;
     const parts: string[] = [];
     if (scanError) parts.push(scanError);
-    if (scanning) parts.push('Scanning…');
+    if (scanning) parts.push(`Scanning… ${entries.size} found`);
+    $('scanBar').hidden = !scanning;
     let unknown = 0;
     let missing = 0;
     for (const e of entries.values()) {

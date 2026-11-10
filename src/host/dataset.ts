@@ -7,6 +7,7 @@ import {
   relUri,
   scanFolder,
   splitRel,
+  type ScanBatch,
   type ScannedFile,
 } from './datasetScanner';
 import { ThumbCache } from './thumbCache';
@@ -55,6 +56,8 @@ export class Dataset {
   private readonly statQueue = new TaskQueue(16);
   private thumbKeys = new Set<string>();
   private pending = new Map<string, EntryPatch>();
+  private pendingUpserts = new Map<string, ImageEntry>();
+  private upsertTimer: ReturnType<typeof setTimeout> | undefined;
   private patchTimer: ReturnType<typeof setTimeout> | undefined;
   private chain: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -82,14 +85,9 @@ export class Dataset {
   /** Full rescan, diffed against the current state. Throws if the dataset folder cannot be read. */
   scan(): Promise<void> {
     return this.serialize(async () => {
-      const [result, keys] = await Promise.all([
-        scanFolder(this.root, this.fs, this.opts.captionExts),
-        this.cache.listKeys(),
-      ]);
-      this.thumbKeys = keys;
-      this.apply(result.files, result.captions, null);
+      this.thumbKeys = await this.cache.listKeys();
+      await this.scanUnserialized();
       this.dims.retain(new Set(this.recs.keys()));
-      if (result.skipped.length) this.sink.skipped(result.skipped);
     });
   }
 
@@ -182,6 +180,7 @@ export class Dataset {
     this.captionQueue.clear();
     this.statQueue.clear();
     if (this.patchTimer) clearTimeout(this.patchTimer);
+    if (this.upsertTimer) clearTimeout(this.upsertTimer);
   }
 
   private serialize(fn: () => Promise<void>): Promise<void> {
@@ -190,9 +189,30 @@ export class Dataset {
     return run;
   }
 
-  private async scanUnserialized(): Promise<void> {
-    const result = await scanFolder(this.root, this.fs, this.opts.captionExts);
-    this.apply(result.files, result.captions, null);
+  private scanUnserialized(): Promise<void> {
+    return this.scanScope(null);
+  }
+
+  /**
+   * Streams entries to the sink folder by folder while the scan runs; entries of `scope`
+   * (null = whole dataset) that the scan did not find are removed once it has completed.
+   */
+  private async scanScope(scope: string | null): Promise<void> {
+    const seen = new Set<string>();
+    const result = await scanFolder(
+      this.root,
+      this.fs,
+      this.opts.captionExts,
+      (batch) => this.applyBatch(batch, seen),
+      scope ?? '',
+    );
+    const removed: string[] = [];
+    for (const id of [...this.entries.keys()]) {
+      const inScope = scope === null || id.startsWith(`${scope}/`);
+      if (inScope && !seen.has(id) && this.remove(id)) removed.push(id);
+    }
+    this.flushUpserts();
+    if (removed.length) this.sink.delta([], removed);
     if (result.skipped.length) this.sink.skipped(result.skipped);
   }
 
@@ -209,9 +229,7 @@ export class Dataset {
       if (removed.length) this.sink.delta([], removed);
       return;
     }
-    const result = await scanFolder(this.root, this.fs, this.opts.captionExts, rel);
-    this.apply(result.files, result.captions, rel);
-    if (result.skipped.length) this.sink.skipped(result.skipped);
+    await this.scanScope(rel);
   }
 
   private async refreshImages(ids: ReadonlySet<string>): Promise<void> {
@@ -270,8 +288,7 @@ export class Dataset {
     return undefined;
   }
 
-  /** `scope`: null = whole dataset, otherwise the relative folder that was rescanned. */
-  private apply(files: ScannedFile[], captions: ScannedFile[], scope: string | null): void {
+  private applyBatch({ files, captions }: ScanBatch, seen: Set<string>): void {
     const capByKey = new Map<string, ScannedFile>();
     const exts = this.opts.captionExts.map((e) => e.toLowerCase());
     for (const c of captions) {
@@ -279,22 +296,23 @@ export class Dataset {
       const ext = exts.find((e) => lower.endsWith(e));
       if (ext) capByKey.set(`${c.id.slice(0, -ext.length)}|${ext}`, c);
     }
-    const upserts: ImageEntry[] = [];
-    const seen = new Set<string>();
     for (const f of files) {
       seen.add(f.id);
       const stem = stemOf(f.id);
       let caption: ScannedFile | undefined;
       for (const e of exts) if ((caption = capByKey.get(`${stem}|${e}`))) break;
       const entry = this.build(f, caption);
-      if (entry) upserts.push(entry);
+      if (entry) this.pendingUpserts.set(entry.id, entry);
     }
-    const removed: string[] = [];
-    for (const id of [...this.entries.keys()]) {
-      const inScope = scope === null || id.startsWith(`${scope}/`);
-      if (inScope && !seen.has(id) && this.remove(id)) removed.push(id);
-    }
-    if (upserts.length || removed.length) this.sink.delta(upserts, removed);
+    this.upsertTimer ??= setTimeout(() => this.flushUpserts(), 250);
+  }
+
+  private flushUpserts(): void {
+    if (this.upsertTimer) clearTimeout(this.upsertTimer);
+    this.upsertTimer = undefined;
+    const upserts = [...this.pendingUpserts.values()];
+    this.pendingUpserts = new Map();
+    if (upserts.length && !this.disposed) this.sink.delta(upserts, []);
   }
 
   /** Creates or updates the entry; returns it only when something visible changed. */
@@ -354,6 +372,7 @@ export class Dataset {
     if (!this.entries.delete(id)) return false;
     this.recs.delete(id);
     this.pending.delete(id);
+    this.pendingUpserts.delete(id);
     const stem = stemOf(id);
     const set = this.byStem.get(stem);
     set?.delete(id);
@@ -398,6 +417,8 @@ export class Dataset {
     this.pending.set(p.id, { ...this.pending.get(p.id), ...p });
     this.patchTimer ??= setTimeout(() => {
       this.patchTimer = undefined;
+      // Patches for entries the webview has not received yet would be dropped there.
+      this.flushUpserts();
       const patches = [...this.pending.values()];
       this.pending = new Map();
       if (patches.length && !this.disposed) this.sink.patch(patches);

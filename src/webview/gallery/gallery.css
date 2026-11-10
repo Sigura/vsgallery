@@ -72,6 +72,34 @@ input[type='range'] {
   accent-color: var(--vscode-button-background);
 }
 
+.scan-bar {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+}
+
+.scan-bar[hidden] {
+  display: none;
+}
+
+.scan-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  background: var(--vscode-progressBar-background);
+  animation: scan-bar 1.2s linear infinite;
+}
+
+@keyframes scan-bar {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
 #scroller {
   position: relative;
   flex: 1;

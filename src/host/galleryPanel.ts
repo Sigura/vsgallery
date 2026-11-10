@@ -604,6 +604,7 @@ export class GalleryPanel {
   <button id="refresh" title="Rescan folder">Refresh</button>
   <button id="help" title="Keyboard shortcuts (?)">?</button>
 </header>
+<div class="scan-bar" id="scanBar" hidden></div>
 <div class="toolbar filters">
   <input id="search" type="search" placeholder="Search…" aria-label="Search">
   <select id="scope" aria-label="Search in">
