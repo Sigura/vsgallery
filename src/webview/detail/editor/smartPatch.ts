@@ -1,10 +1,16 @@
 import { contextRect } from '../../../shared/inpaint';
 import { intersectRect } from '../../../shared/layerMath';
+import type { MaskRect } from '../../../shared/mask';
 import type { EditDocument } from './document';
 import type { PatchRequest, PatchResponse } from './patchWorker';
-import type { Selection } from './selection';
 
-/** Content-aware fill of the selection on the active layer, computed in a worker. */
+/** Pixels to rebuild, in document coordinates (a selection, or a healing stroke). */
+export interface PatchRegion {
+  readonly bounds: MaskRect | undefined;
+  has(x: number, y: number): boolean;
+}
+
+/** Content-aware fill of a region of the active layer, computed in a worker. */
 export class SmartPatcher {
   private worker: Worker | undefined;
   private nextId = 1;
@@ -14,14 +20,14 @@ export class SmartPatcher {
   constructor(private readonly workerUrl: string) {}
 
   /** Resolves with an error message, or undefined once the fill is applied (one undo step). */
-  async fill(doc: EditDocument, sel: Selection): Promise<string | undefined> {
+  async fill(doc: EditDocument, sel: PatchRegion, label = 'Smart patch'): Promise<string | undefined> {
     const b = sel.bounds;
     if (!b) return 'Select the area to fill first';
     if (this.busy) return 'A fill is already running';
     doc.rasterizeAll();
     const layer = doc.active;
     const inter = intersectRect(b, { x: layer.x, y: layer.y, w: layer.w, h: layer.h });
-    if (!inter) return 'The selection is outside the active layer';
+    if (!inter) return 'The area is outside the active layer';
     const surface = doc.surface(layer);
     const area = contextRect({ x: inter.x - layer.x, y: inter.y - layer.y, w: inter.w, h: inter.h }, surface.width, surface.height);
     const img = surface.ctx.getImageData(area.x, area.y, area.w, area.h);
@@ -41,7 +47,7 @@ export class SmartPatcher {
     if (doc.historyMark() !== mark || doc.active !== layer) return 'The image changed while filling; the fill was not applied';
     const before = surface.snapshot(area);
     surface.ctx.putImageData(new ImageData(new Uint8ClampedArray(res.rgba), area.w, area.h), area.x, area.y);
-    surface.commitRegion('Smart patch', area, before);
+    surface.commitRegion(label, area, before);
     return undefined;
   }
 

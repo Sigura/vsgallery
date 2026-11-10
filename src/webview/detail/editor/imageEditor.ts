@@ -14,7 +14,7 @@ import { WetStroke, type WetSettings } from './wetBrush';
 import { CloneSource, CloneStroke } from './cloneTool';
 import { SmartPatcher } from './smartPatch';
 
-export type ToolName = 'pan' | 'brush' | 'eraser' | 'wet' | 'clone' | 'picker' | 'crop' | 'move' | SelectToolName;
+export type ToolName = 'pan' | 'brush' | 'eraser' | 'wet' | 'clone' | 'heal' | 'picker' | 'crop' | 'move' | SelectToolName;
 
 const PAINT_TOOLS: readonly ToolName[] = ['brush', 'eraser', 'wet', 'clone'];
 
@@ -80,6 +80,11 @@ export class ImageEditor {
   private cursorPos: ImagePoint | undefined;
   private shiftDrag: { x: number; startSize: number; resizing: boolean; p: ImagePoint; ctrl: boolean } | undefined;
   private picking = false;
+  /** Heal stroke being painted or being filled, in document coordinates. */
+  private healPath: ImagePoint[] | undefined;
+  private healDiameter = 0;
+  /** Ctrl/Cmd is held: a click with a paint tool picks a colour, shown as an eyedropper cursor. */
+  private pickKey = false;
   private beforeShown = false;
   private readonly expectedWrites = new Set<string>();
   private readonly pendingMarks = new Map<string, number>();
@@ -148,6 +153,7 @@ export class ImageEditor {
       eraser: paint,
       wet: paint,
       clone: paint,
+      heal: this.healTool(),
       picker: this.pickerTool(),
       crop: this.crop,
       move: this.moveTool,
@@ -165,7 +171,13 @@ export class ImageEditor {
     window.addEventListener('keyup', (e) => {
       if (e.key === '\\') this.showBefore(false);
     });
-    window.addEventListener('blur', () => this.showBefore(false));
+    const trackPickKey = (e: KeyboardEvent) => this.setPickKey((e.ctrlKey || e.metaKey) && !e.shiftKey);
+    window.addEventListener('keydown', trackPickKey);
+    window.addEventListener('keyup', trackPickKey);
+    window.addEventListener('blur', () => {
+      this.showBefore(false);
+      this.setPickKey(false);
+    });
     this.setTool(this.ui.tool);
   }
 
@@ -311,6 +323,7 @@ export class ImageEditor {
       i: 'picker',
       r: 'wet',
       s: 'clone',
+      j: 'heal',
       c: 'crop',
       v: 'move',
       m: 'selRect',
@@ -483,7 +496,8 @@ export class ImageEditor {
           this.viewer.requestDraw();
           return;
         }
-        if (e.altKey) {
+        // Ctrl+Shift is reserved for the snapped straight line.
+        if (e.altKey || ((e.ctrlKey || e.metaKey) && !e.shiftKey)) {
           this.picking = true;
           this.pick(p);
           return;
@@ -532,6 +546,12 @@ export class ImageEditor {
         this.viewer.requestDraw();
       },
     };
+  }
+
+  private setPickKey(on: boolean): void {
+    if (on === this.pickKey) return;
+    this.pickKey = on;
+    if (PAINT_TOOLS.includes(this.ui.tool)) this.viewer.requestDraw();
   }
 
   /** Shift+click: straight stroke from the end of the previous stroke; Ctrl snaps to 15°. */
@@ -630,11 +650,30 @@ export class ImageEditor {
       return;
     }
     const p = this.cursorPos;
+    if (this.ui.tool === 'heal') {
+      if (this.healPath) {
+        ctx.save();
+        traceHealPath(ctx, this.healPath, this.healDiameter * v.scale, (q) => [v.tx + q.x * v.scale, v.ty + q.y * v.scale]);
+        ctx.fillStyle = ctx.strokeStyle = this.patcher.busy ? 'rgba(255, 170, 0, 0.45)' : 'rgba(255, 60, 60, 0.45)';
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (p && !this.healPath) this.drawBrushCursor(ctx, v.tx + p.x * v.scale, v.ty + p.y * v.scale, Math.max(1, (this.diameter() * v.scale) / 2));
+      return;
+    }
     if (!PAINT_TOOLS.includes(this.ui.tool) || !p) return;
-    if (this.ui.tool === 'clone') this.drawCloneSource(ctx, v, p);
     const cx = v.tx + p.x * v.scale;
     const cy = v.ty + p.y * v.scale;
-    const r = Math.max(1, (this.diameter() * v.scale) / 2);
+    if (this.pickKey || this.picking) {
+      this.drawPickCursor(ctx, cx, cy);
+      return;
+    }
+    if (this.ui.tool === 'clone') this.drawCloneSource(ctx, v, p);
+    this.drawBrushCursor(ctx, cx, cy, Math.max(1, (this.diameter() * v.scale) / 2));
+  }
+
+  private drawBrushCursor(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -646,6 +685,34 @@ export class ImageEditor {
     ctx.stroke();
     ctx.fillStyle = '#fff';
     ctx.fillRect(cx - 0.5, cy - 0.5, 1, 1);
+    ctx.restore();
+  }
+
+  /** Eyedropper cursor: crosshair with a swatch of the brush colour. */
+  private drawPickCursor(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+    ctx.save();
+    for (const [w, c] of [
+      [3, 'rgba(0, 0, 0, 0.6)'],
+      [1, 'rgba(255, 255, 255, 0.9)'],
+    ] as const) {
+      ctx.lineWidth = w;
+      ctx.strokeStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(x - 9, y);
+      ctx.lineTo(x - 3, y);
+      ctx.moveTo(x + 3, y);
+      ctx.lineTo(x + 9, y);
+      ctx.moveTo(x, y - 9);
+      ctx.lineTo(x, y - 3);
+      ctx.moveTo(x, y + 3);
+      ctx.lineTo(x, y + 9);
+      ctx.stroke();
+    }
+    ctx.fillStyle = this.ui.brush.color;
+    ctx.fillRect(x + 8, y + 8, 14, 14);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeRect(x + 8.5, y + 8.5, 13, 13);
     ctx.restore();
   }
 
@@ -671,6 +738,70 @@ export class ImageEditor {
       ctx.stroke();
     }
     ctx.restore();
+  }
+
+  /** Spot healing: paint over a defect; on release the painted area is rebuilt from its surroundings. */
+  private healTool(): ViewerTool {
+    return {
+      cursor: 'none',
+      down: (_e, p) => {
+        if (this.doc === undefined || this.healPath) return;
+        if (this.patcher.busy) {
+          this.host.notice('A fill is still running');
+          return;
+        }
+        this.healDiameter = this.diameter();
+        this.healPath = [p];
+        this.viewer.requestDraw();
+      },
+      move: (_e, pts) => {
+        this.cursorPos = pts.at(-1);
+        if (this.healPath && this.patcher.busy === false) this.healPath.push(...pts);
+        this.viewer.requestDraw();
+      },
+      up: () => {
+        if (this.healPath && this.patcher.busy === false) void this.heal(this.healPath, this.healDiameter);
+      },
+      hover: (p) => {
+        this.cursorPos = p;
+        this.viewer.requestDraw();
+      },
+    };
+  }
+
+  private async heal(path: ImagePoint[], diameter: number): Promise<void> {
+    const doc = this.doc;
+    const r = diameter / 2;
+    const x0 = Math.max(0, Math.floor(Math.min(...path.map((q) => q.x)) - r));
+    const y0 = Math.max(0, Math.floor(Math.min(...path.map((q) => q.y)) - r));
+    const x1 = Math.min(doc?.width ?? 0, Math.ceil(Math.max(...path.map((q) => q.x)) + r));
+    const y1 = Math.min(doc?.height ?? 0, Math.ceil(Math.max(...path.map((q) => q.y)) + r));
+    if (doc === undefined || x1 <= x0 || y1 <= y0) {
+      this.healPath = undefined;
+      this.viewer.requestDraw();
+      return;
+    }
+    // The mask is rasterized from the same shape as the on-screen preview.
+    const w = x1 - x0;
+    const h = y1 - y0;
+    const ctx = new OffscreenCanvas(w, h).getContext('2d')!;
+    traceHealPath(ctx, path, diameter, (q) => [q.x - x0, q.y - y0]);
+    ctx.fillStyle = ctx.strokeStyle = '#000';
+    ctx.fill();
+    ctx.stroke();
+    const alpha = ctx.getImageData(0, 0, w, h).data;
+    const mask = new Uint8Array(w * h);
+    for (let i = 0; i < mask.length; i++) mask[i] = alpha[i * 4 + 3] >= 128 ? 1 : 0;
+    const region = {
+      bounds: { x: x0, y: y0, w, h },
+      has: (x: number, y: number) => x >= x0 && y >= y0 && x < x1 && y < y1 && mask[(y - y0) * w + (x - x0)] === 1,
+    };
+    this.host.notice('Healing…');
+    this.viewer.requestDraw();
+    const error = await this.patcher.fill(doc, region, 'Heal');
+    this.healPath = undefined;
+    this.host.notice(error ?? 'Healed from the surroundings');
+    this.refresh();
   }
 
   private async smartFill(): Promise<void> {
@@ -747,4 +878,27 @@ export class ImageEditor {
 
 function clampSize(v: number): number {
   return Math.max(1, Math.min(500, v));
+}
+
+/**
+ * Builds the heal stroke as a path: a round-capped polyline of width `width` (to be stroked) plus a
+ * disc at each end (to be filled), so a single click also covers a full brush disc.
+ */
+function traceHealPath(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  path: readonly ImagePoint[],
+  width: number,
+  to: (p: ImagePoint) => [number, number],
+): void {
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const pts = path.map(to);
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (const [x, y] of pts.slice(1)) ctx.lineTo(x, y);
+  for (const [x, y] of [pts[0], pts[pts.length - 1]]) {
+    ctx.moveTo(x + width / 2, y);
+    ctx.arc(x, y, width / 2, 0, Math.PI * 2);
+  }
 }

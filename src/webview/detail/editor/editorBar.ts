@@ -62,17 +62,18 @@ export class EditorBar {
     const ratios = RATIOS.map(([n, r]) => `<option value="ar:${r}">${n}</option>`).join('');
     this.bar.innerHTML = `
       <div class="seg tools" role="toolbar" aria-label="Tools">
-        <button data-tool="pan" title="Pan (H) — Space+drag or middle button pans with any tool">Pan</button>
-        <button data-tool="brush" title="Brush (B) — Alt+click picks a colour, Shift+click draws a line, Shift+drag resizes">Brush</button>
-        <button data-tool="eraser" title="Eraser (E)">Eraser</button>
-        <button data-tool="wet" title="Wet paint (R) — smudges the existing colours and mixes in the brush colour">Wet</button>
-        <button data-tool="clone" title="Clone stamp (S) — Alt+click sets the source">Clone</button>
-        <button data-tool="picker" title="Eyedropper (I)">Picker</button>
-        <button data-tool="crop" title="Crop (C) — Enter applies, Esc cancels">Crop</button>
-        <button data-tool="move" title="Move layer (V) — drag to move, corner handles scale (Shift keeps the ratio), arrow keys nudge. Ctrl+V or drop an image file to add a layer">Move</button>
-        <button data-tool="selRect" title="Rectangle selection (M) — Shift adds, Alt subtracts">Select</button>
-        <button data-tool="lasso" title="Freehand selection (L) — Shift adds, Alt subtracts">Lasso</button>
-        <button data-tool="wand" title="Contiguous selection (W) — Shift adds, Alt subtracts">Wand</button>
+        <button data-tool="pan" data-icon="pan" data-icon-only title="Pan (H) — Space+drag or middle button pans with any tool">Pan</button>
+        <button data-tool="brush" data-icon="brush" data-icon-only title="Brush (B) — Ctrl+click (or Alt+click) picks a colour, Shift+click draws a line, Shift+drag resizes">Brush</button>
+        <button data-tool="eraser" data-icon="eraser" data-icon-only title="Eraser (E) — Ctrl+click picks the brush colour">Eraser</button>
+        <button data-tool="wet" data-icon="wet" data-icon-only title="Wet paint (R) — smudges the existing colours and mixes in the brush colour; Ctrl+click picks a colour">Wet</button>
+        <button data-tool="clone" data-icon="clone" data-icon-only title="Clone stamp (S) — Alt+click sets the source">Clone</button>
+        <button data-tool="heal" data-icon="heal" data-icon-only title="Heal (J) — paint over a spot, scratch or watermark; on release it is rebuilt from the surroundings">Heal</button>
+        <button data-tool="picker" data-icon="picker" data-icon-only title="Eyedropper (I)">Picker</button>
+        <button data-tool="crop" data-icon="crop" data-icon-only title="Crop (C) — Enter applies, Esc cancels">Crop</button>
+        <button data-tool="move" data-icon="move" data-icon-only title="Move layer (V) — drag to move, corner handles scale (Shift keeps the ratio), arrow keys nudge. Ctrl+V or drop an image file to add a layer">Move</button>
+        <button data-tool="selRect" data-icon="selRect" data-icon-only title="Rectangle selection (M) — Shift adds, Alt subtracts">Select</button>
+        <button data-tool="lasso" data-icon="lasso" data-icon-only title="Freehand selection (L) — Shift adds, Alt subtracts">Lasso</button>
+        <button data-tool="wand" data-icon="wand" data-icon-only title="Contiguous selection (W) — Shift adds, Alt subtracts">Wand</button>
       </div>
       <div class="opts" data-for="wand">
         <label title="Maximum difference per channel from the clicked pixel">Tolerance <input data-k="tolerance" type="number" min="0" max="255" step="1"></label>
@@ -84,13 +85,15 @@ export class EditorBar {
         <button data-k="selAll" title="Select all (Ctrl+A)">All</button>
         <button data-k="selNone" title="Deselect (Esc or Ctrl+D)">Deselect</button>
       </div>
-      <div class="opts" data-for="brush eraser wet clone">
+      <div class="opts" data-for="brush eraser wet clone heal">
         <label title="Brush size ([ and ])">Size <input data-k="size" type="range" min="1" max="500"></label>
         <span data-k="sizeInfo" class="info"></span>
         <select data-k="sizeMode" title="Screen px: the brush keeps its size on screen at any zoom">
           <option value="screen">Screen px</option>
           <option value="image">Image px</option>
         </select>
+      </div>
+      <div class="opts" data-for="brush eraser wet clone">
         <label>Hardness <input data-k="hardness" type="range" min="0" max="100"></label>
         <label>Opacity <input data-k="opacity" type="range" min="1" max="100"></label>
         <label>Flow <input data-k="flow" type="range" min="1" max="100"></label>
