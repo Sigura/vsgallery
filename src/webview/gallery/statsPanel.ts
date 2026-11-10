@@ -24,7 +24,10 @@ export class StatsPanel {
   private readonly dialog: HTMLDialogElement;
   private base = 1024;
 
-  constructor(private readonly ctx: ToolsContext) {
+  constructor(
+    private readonly ctx: ToolsContext,
+    private readonly openBalance: () => void,
+  ) {
     this.dialog = document.createElement('dialog');
     this.dialog.className = 'leave-dialog tools-dialog';
     this.dialog.innerHTML = `
@@ -47,6 +50,11 @@ export class StatsPanel {
     this.dialog.querySelector('form')!.addEventListener('submit', (e) => e.preventDefault());
     this.dialog.querySelector('[name=close]')!.addEventListener('click', () => this.dialog.close());
     const base = this.dialog.querySelector<HTMLSelectElement>('[name=base]')!;
+    this.dialog.querySelector('.stats-body')!.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('[name=balance]')) return;
+      this.dialog.close();
+      this.openBalance();
+    });
     base.addEventListener('change', () => {
       this.base = Number(base.value);
       this.render();
@@ -96,6 +104,7 @@ export class StatsPanel {
           <thead><tr><th>Folder</th><th>Repeats</th><th>Images</th><th>Samples / epoch</th><th>Share</th></tr></thead>
           <tbody>${folders}</tbody>
         </table>
+        <button type="button" name="balance">Balance repeats…</button>
         <p class="hint">Samples per epoch = images × kohya repeats (from "N_name" folder names)${noRepeats ? '; folders without a repeat prefix count once' : ''}. Steps per epoch = samples ÷ batch size.</p>
       </section>
       <section class="stats-grid">

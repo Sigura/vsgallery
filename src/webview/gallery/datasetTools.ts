@@ -1,6 +1,7 @@
 import type { GallerySettings, HostToWebview, ImageEntry, WebviewToHost } from '../../shared/protocol';
 import { Analyzer } from './analyzer';
 import { DuplicatesDialog } from './duplicates';
+import { KohyaBalance } from './kohyaBalance';
 import { ReviewMode } from './reviewMode';
 import { StatsPanel } from './statsPanel';
 import { TagTools } from './tagTools';
@@ -8,6 +9,8 @@ import { TagTools } from './tagTools';
 export interface ToolsHost {
   entries(): Iterable<ImageEntry>;
   entry(id: string): ImageEntry | undefined;
+  /** Name of the folder this gallery is opened on. */
+  rootName(): string;
   /** Selected images, or all visible ones when nothing is selected, in gallery order. */
   targets(): { ids: string[]; what: string };
   /** Thumbnail URL if one is available without generating it. */
@@ -39,10 +42,12 @@ export class DatasetTools {
   private readonly tags: TagTools;
   private readonly dups: DuplicatesDialog;
   private readonly review: ReviewMode;
+  private readonly balance: KohyaBalance;
 
   constructor(private readonly host: ToolsHost) {
     const ctx: ToolsContext = { ...host, analyzer: () => this.analyzerInst };
-    this.stats = new StatsPanel(ctx);
+    this.balance = new KohyaBalance(ctx);
+    this.stats = new StatsPanel(ctx, () => this.balance.open());
     this.tags = new TagTools(ctx);
     this.dups = new DuplicatesDialog(ctx, () => host.duplicatesChanged());
     this.review = new ReviewMode(ctx);
@@ -50,7 +55,7 @@ export class DatasetTools {
 
   /** Any of the dialogs or the review is open. */
   get isOpen(): boolean {
-    return this.stats.isOpen || this.tags.isOpen || this.dups.isOpen || this.review.isOpen;
+    return this.stats.isOpen || this.tags.isOpen || this.dups.isOpen || this.review.isOpen || this.balance.isOpen;
   }
 
   get reviewing(): boolean {
@@ -59,6 +64,10 @@ export class DatasetTools {
 
   openStats(): void {
     if (!this.isOpen) this.stats.open();
+  }
+
+  openBalance(): void {
+    if (!this.isOpen) this.balance.open();
   }
 
   openTags(): void {
@@ -129,6 +138,6 @@ export class DatasetTools {
   }
 
   onHostMessage(m: HostToWebview): boolean {
-    return this.tags.onHostMessage(m);
+    return this.tags.onHostMessage(m) || this.balance.onHostMessage(m);
   }
 }

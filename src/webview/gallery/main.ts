@@ -182,6 +182,7 @@ function openDetail(id: string): void {
 // Created before the tools so its "?" key handler runs ahead of the review mode's.
 const help = new HelpOverlay();
 const tools = new DatasetTools({
+  rootName: () => $('title').textContent ?? '',
   entries: () => entries.values(),
   entry: (id) => entries.get(id),
   targets: () => captionTargets(),
@@ -781,6 +782,7 @@ qualitySel.addEventListener('change', () => {
 });
 $('help').addEventListener('click', () => help.open());
 $('stats').addEventListener('click', () => !detail.isOpen && tools.openStats());
+$('repeats').addEventListener('click', () => !detail.isOpen && tools.openBalance());
 $('tagTools').addEventListener('click', () => !detail.isOpen && !batch && tools.openTags());
 $('dups').addEventListener('click', () => !detail.isOpen && tools.openDuplicates());
 $('review').addEventListener('click', () => !detail.isOpen && tools.openReview());
