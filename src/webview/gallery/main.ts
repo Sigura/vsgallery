@@ -8,7 +8,6 @@ import { ThumbLoader } from './thumbLoader';
 import { VirtualGrid, type Anchor, type Group } from './virtualGrid';
 import { SelectionController } from './selection';
 import { DetailView } from '../detail/detailView';
-import type { CaptionMode } from '../detail/captionEditor';
 import type { EditorUiState } from '../detail/editor/imageEditor';
 import { CancelledByUser, TaggerClient } from '../tagger/taggerClient';
 import { AutoCaptionBatch, type BatchProgress } from '../tagger/autoCaption';
@@ -37,7 +36,7 @@ interface UiState {
   fSmall: boolean;
   fQuality: QualityFilter;
   hoverCaption: boolean;
-  captionMode: CaptionMode;
+  syncExplorer: boolean;
   resize?: ResizeUiState;
   editor?: Partial<EditorUiState>;
   /** Image open in the detail view, restored after the webview reloads. */
@@ -77,7 +76,7 @@ const ui: UiState = {
   fSmall: false,
   fQuality: '',
   hoverCaption: true,
-  captionMode: 'tags',
+  syncExplorer: false,
   ...vscode.getState(),
 };
 let entries = new Map<string, ImageEntry>();
@@ -143,16 +142,13 @@ const selection = new SelectionController(
 
 const detail = new DetailView($('detail'), {
   entry: (id) => entries.get(id),
-  *allCaptions() {
-    for (const e of entries.values()) if (typeof e.caption === 'string') yield e.caption;
-  },
   imageUrl: (e) => imageUrl(e),
   previewUrl: (e) => loader?.objectUrl(e.thumb) ?? (e.hasThumb ? thumbUrl(e) : undefined),
   post,
   settings: () => settings!,
-  captionMode: () => ui.captionMode,
-  setCaptionMode: (m) => {
-    ui.captionMode = m;
+  syncExplorer: () => ui.syncExplorer,
+  setSyncExplorer: (on) => {
+    ui.syncExplorer = on;
     saveState();
   },
   editorState: () => ui.editor,
@@ -348,7 +344,6 @@ function captionWritten(id: string, text: string): void {
   const e = entries.get(id);
   if (!e) return;
   e.caption = text;
-  detail.invalidateTags();
   detail.onPatch({ id, caption: text });
   tools.entryChanged(id);
   grid?.refresh(id);
@@ -671,7 +666,6 @@ function onHostMessage(m: Exclude<HostToWebview, { type: 'init' }>): void {
       for (const id of m.removed) entries.delete(id);
       for (const e of m.upserts) entries.set(e.id, e);
       scheduleRebuild(50);
-      detail.invalidateTags();
       detail.onEntriesChanged(m.upserts, m.removed);
       tools.entriesChanged(m.upserts, m.removed);
       return;
@@ -688,7 +682,6 @@ function onHostMessage(m: Exclude<HostToWebview, { type: 'init' }>): void {
         if (p.caption !== undefined) {
           e.caption = p.caption;
           affectsView ||= ui.fMissing || ui.fQuality !== '' || ui.search.trim() !== '';
-          detail.invalidateTags();
         }
         grid?.refresh(e.id);
         tools.entryChanged(e.id);
@@ -723,7 +716,6 @@ function onHostMessage(m: Exclude<HostToWebview, { type: 'init' }>): void {
       const e = entries.get(m.id);
       if (e && !m.error) {
         e.caption = m.text;
-        detail.invalidateTags();
         grid?.refresh(m.id);
         tools.entryChanged(m.id);
         if (ui.fMissing || ui.fQuality || ui.search.trim()) scheduleRebuild();

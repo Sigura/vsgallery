@@ -398,6 +398,11 @@ body.detail-open > footer {
   overflow: hidden;
 }
 
+.detail-bar button.on {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
 .detail-bar .detail-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -495,19 +500,6 @@ body.detail-open > footer {
   color: var(--vscode-errorForeground);
 }
 
-.segmented {
-  display: inline-flex;
-}
-
-.segmented button {
-  padding: 2px 8px;
-}
-
-.segmented button.on {
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
-}
-
 .caption-banner {
   display: flex;
   flex-wrap: wrap;
@@ -536,135 +528,9 @@ body.detail-open > footer {
   padding: 6px;
 }
 
-.caption-raw:focus,
-.chip-input:focus,
-.chip-edit:focus {
+.caption-raw:focus {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
-}
-
-.chips {
-  position: relative;
-}
-
-.chips[hidden] {
-  display: none;
-}
-
-.chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 6px;
-  min-height: 40px;
-  max-height: 30vh;
-  overflow-y: auto;
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 100%;
-  padding: 1px 2px 1px 7px;
-  border-radius: 10px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
-  cursor: grab;
-  outline: none;
-}
-
-.chip:focus-visible {
-  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
-}
-
-.chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip-x {
-  padding: 0 4px;
-  background: transparent;
-  color: inherit;
-  opacity: 0.7;
-  border-radius: 8px;
-}
-
-.chip-x:hover {
-  opacity: 1;
-  background: rgba(128, 128, 128, 0.3);
-}
-
-.chip.dragging {
-  opacity: 0.4;
-}
-
-.chip.drop-before {
-  box-shadow: -3px 0 0 var(--vscode-focusBorder);
-}
-
-.chip.drop-after {
-  box-shadow: 3px 0 0 var(--vscode-focusBorder);
-}
-
-.chip.flash {
-  animation: chip-flash 0.6s;
-}
-
-@keyframes chip-flash {
-  50% {
-    background: var(--vscode-inputValidation-warningBackground, #cca700);
-  }
-}
-
-.chip-input,
-.chip-edit {
-  flex: 1;
-  min-width: 90px;
-  border: none;
-  color: var(--vscode-input-foreground);
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  padding: 1px 2px;
-}
-
-.chip-edit {
-  min-width: 60px;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-}
-
-.suggest {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  z-index: 5;
-  max-height: 220px;
-  overflow-y: auto;
-  background: var(--vscode-editorSuggestWidget-background, var(--vscode-dropdown-background));
-  border: 1px solid var(--vscode-editorSuggestWidget-border, var(--vscode-dropdown-border, transparent));
-}
-
-.suggest[hidden] {
-  display: none;
-}
-
-.suggest-item {
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.suggest-item.active {
-  color: var(--vscode-editorSuggestWidget-selectedForeground, inherit);
-  background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground));
 }
 
 .meta {

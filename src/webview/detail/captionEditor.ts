@@ -1,21 +1,17 @@
 import { joinTags, mergeTags, parseTags } from '../../shared/captions';
 import { combineCaption, type ExistingCaptionMode } from '../../shared/tagger';
-import { TagChips } from './tagChips';
 
-export type CaptionMode = 'tags' | 'raw';
 
 export interface CaptionEditorHost {
   save(id: string, text: string): void;
-  suggest(query: string, exclude: ReadonlySet<string>): string[];
   autosave(): { enabled: boolean; delay: number };
-  modeChanged(mode: CaptionMode): void;
   generate(): void;
 }
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error' | 'loading';
 
 /**
- * Caption of one image: tag chips or raw text, autosave or Ctrl+S, and reconciliation with
+ * Caption of one image as plain text: autosave or Ctrl+S, and reconciliation with
  * changes made to the caption file outside this editor.
  */
 export class CaptionEditor {
@@ -29,14 +25,10 @@ export class CaptionEditor {
   private error: string | undefined;
   private conflict: string | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private mode: CaptionMode;
-  private readonly chips: TagChips;
-  private readonly chipsEl: HTMLElement;
   private readonly textarea: HTMLTextAreaElement;
   private readonly stateEl: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly fileEl: HTMLElement;
-  private readonly modeButtons: Record<CaptionMode, HTMLButtonElement>;
   private readonly genButton: HTMLButtonElement;
   private readonly emptyEl: HTMLElement;
   /** The user chose to write a caption for an image without a caption file. */
@@ -45,19 +37,13 @@ export class CaptionEditor {
   constructor(
     root: HTMLElement,
     private readonly host: CaptionEditorHost,
-    mode: CaptionMode,
   ) {
-    this.mode = mode;
     root.innerHTML = `
       <div class="caption-head">
         <span class="caption-title">Caption</span>
         <span class="caption-file"></span>
         <span class="spacer"></span>
         <span class="save-state" aria-live="polite"></span>
-        <div class="segmented" role="group" aria-label="Caption mode">
-          <button data-mode="tags" title="Edit as tag chips">Tags</button>
-          <button data-mode="raw" title="Edit as plain text">Text</button>
-        </div>
         <button class="gen-btn" title="Generate tags with the WD tagger (G)">Generate</button>
         <button class="save-btn" title="Save caption (Ctrl+S)">Save</button>
       </div>
@@ -67,22 +53,11 @@ export class CaptionEditor {
         <button class="primary" data-empty="generate" title="Generate tags with the WD tagger (G)">Generate</button>
         <button data-empty="write" title="Start an empty caption (Enter)">Write caption</button>
       </div>
-      <div class="caption-chips"></div>
       <textarea class="caption-raw" spellcheck="false" aria-label="Caption text"></textarea>`;
     this.stateEl = root.querySelector('.save-state')!;
     this.banner = root.querySelector('.caption-banner')!;
     this.fileEl = root.querySelector('.caption-file')!;
     this.textarea = root.querySelector('.caption-raw')!;
-    this.chipsEl = root.querySelector('.caption-chips')!;
-    this.chips = new TagChips(this.chipsEl, {
-      onChange: (tags) => this.edited(joinTags(tags)),
-      suggest: (q, ex) => this.host.suggest(q, ex),
-    });
-    this.modeButtons = {
-      tags: root.querySelector('[data-mode="tags"]')!,
-      raw: root.querySelector('[data-mode="raw"]')!,
-    };
-    for (const m of ['tags', 'raw'] as const) this.modeButtons[m].addEventListener('click', () => this.setMode(m));
     root.querySelector('.save-btn')!.addEventListener('click', () => this.saveNow());
     this.genButton = root.querySelector('.gen-btn')!;
     this.genButton.addEventListener('click', () => this.host.generate());
@@ -101,7 +76,7 @@ export class CaptionEditor {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-action]')?.dataset.action;
       if (action) this.resolveConflict(action as 'reload' | 'merge' | 'keep');
     });
-    this.applyMode();
+    this.applyEmpty();
   }
 
   get currentId(): string | undefined {
@@ -219,18 +194,9 @@ export class CaptionEditor {
   focus(): void {
     if (this.isEmpty()) {
       this.writing = true;
-      this.applyMode();
+      this.applyEmpty();
     }
-    if (this.mode === 'tags') this.chips.focusInput();
-    else this.textarea.focus();
-  }
-
-  setMode(mode: CaptionMode): void {
-    if (mode === this.mode) return;
-    this.mode = mode;
-    this.applyMode();
-    this.renderText();
-    this.host.modeChanged(mode);
+    this.textarea.focus();
   }
 
   /** No caption file and nothing typed or generated yet: show the Generate / Write placeholder instead of the editor. */
@@ -238,12 +204,10 @@ export class CaptionEditor {
     return this.id !== undefined && !this.loading && !this.hasFile && !this.writing && this.text === '';
   }
 
-  private applyMode(): void {
+  private applyEmpty(): void {
     const empty = this.isEmpty();
     this.emptyEl.hidden = !empty;
-    this.chipsEl.hidden = empty || this.mode !== 'tags';
-    this.textarea.hidden = empty || this.mode !== 'raw';
-    for (const m of ['tags', 'raw'] as const) this.modeButtons[m].classList.toggle('on', m === this.mode);
+    this.textarea.hidden = empty;
   }
 
   private edited(text: string): void {
@@ -279,14 +243,13 @@ export class CaptionEditor {
   }
 
   private renderText(): void {
-    this.applyMode();
-    if (this.mode === 'tags') this.chips.setTags(parseTags(this.text));
-    else if (this.textarea.value !== this.text) this.textarea.value = this.text;
+    this.applyEmpty();
+    if (this.textarea.value !== this.text) this.textarea.value = this.text;
     this.textarea.disabled = this.loading;
   }
 
   private renderState(): void {
-    this.applyMode();
+    this.applyEmpty();
     let state: SaveState = 'clean';
     if (this.loading) state = 'loading';
     else if (this.error) state = 'error';
